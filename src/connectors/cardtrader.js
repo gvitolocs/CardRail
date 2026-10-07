@@ -1,6 +1,6 @@
 /**
  * CardTrader adapter.
- * Knows CardTrader order fields. CardRail core never sees them.
+ * Knows CardTrader order fields. Card Rails core never sees them.
  */
 
 export function fromCardTraderOrders(rawOrders) {

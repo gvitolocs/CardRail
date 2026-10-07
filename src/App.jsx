@@ -80,7 +80,7 @@ export default function App() {
       <header className="topbar">
         <div className="brand">
           <img src="/favicon.svg" width={28} height={28} alt="" />
-          <span className="wordmark">CardRail</span>
+          <span className="wordmark">Card Rails</span>
         </div>
         <nav className="nav">
           {NAV.map((item) => (

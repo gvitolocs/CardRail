@@ -1,6 +1,6 @@
 /**
  * Pokoin adapter.
- * Pokoin stays a client of CardRail: this file is the whole plugin surface.
+ * Pokoin stays a client of Card Rails: this file is the whole plugin surface.
  */
 
 export function fromPokoinListing(raw) {
