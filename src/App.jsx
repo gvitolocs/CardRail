@@ -13,12 +13,12 @@ import { Inventory } from './ui/Inventory.jsx'
 import { Pick } from './ui/Pick.jsx'
 import { Platforms } from './ui/Platforms.jsx'
 
-const stations = [
-  ['overview', 'Overview'],
-  ['scan', 'Scan'],
-  ['inventory', 'Inventory'],
-  ['pick', 'Pick run'],
-  ['platforms', 'Platforms'],
+const NAV = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'scan', label: 'Scan' },
+  { id: 'inventory', label: 'Inventory' },
+  { id: 'pick', label: 'Pick run' },
+  { id: 'platforms', label: 'Platforms' },
 ]
 
 export default function App() {
@@ -33,6 +33,7 @@ export default function App() {
   )
   const [picked, setPicked] = useState(false)
   const [pending, setPending] = useState([])
+  const [query, setQuery] = useState('')
 
   const orders = useMemo(() => fromCardTraderOrders(cardTraderOrders), [])
   const pick = useMemo(() => buildPickRun(orders, items), [orders, items])
@@ -68,42 +69,58 @@ export default function App() {
     setPending((current) => (current.includes(id) ? current : [...current, id]))
   }
 
+  function onSearch(event) {
+    const value = event.target.value
+    setQuery(value)
+    if (value.trim()) setView('inventory')
+  }
+
   return (
-    <div className="app">
-      <aside className="rail">
-        <div className="mark">
-          <span className="mark-kicker">Inventory OS</span>
-          <strong>CardRail</strong>
+    <>
+      <header className="topbar">
+        <div className="brand">
+          <img src="/favicon.svg" width={28} height={28} alt="" />
+          <span className="wordmark">CardRail</span>
         </div>
-        <ol className="stations">
-          {stations.map(([id, label]) => (
-            <li key={id} className={view === id ? 'is-active' : ''}>
-              <button type="button" onClick={() => setView(id)}>
-                {label}
-              </button>
-            </li>
+        <nav className="nav">
+          {NAV.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={'nav-btn' + (view === item.id ? ' is-active' : '')}
+              onClick={() => setView(item.id)}
+            >
+              {item.label}
+            </button>
           ))}
-        </ol>
-        <p className="rail-status">
-          <i className={picked ? 'dot dot-on' : 'dot'} />
-          {picked ? 'Pick run synced' : 'Core online'}
-          <span>
-            {(railSize + scanned).toLocaleString('en-GB')} cards
-          </span>
-        </p>
-      </aside>
-      <main className="stage">
+        </nav>
+        <input
+          className="search"
+          placeholder="Search cards, sets, locations…"
+          value={query}
+          onChange={onSearch}
+          aria-label="Search the rail"
+        />
+        <div className="count">
+          <b>{(railSize + scanned).toLocaleString('en-GB')}</b> cards
+        </div>
+      </header>
+      <main className="main">
         {view === 'overview' && (
           <Overview
-            items={items}
             pick={pick}
             scanned={scanned}
             picked={picked}
             onOpen={setView}
           />
         )}
-        {view === 'scan' && <Scan scanned={items.filter((entry) => entry.source === 'scan')} onScan={addScan} />}
-        {view === 'inventory' && <Inventory items={items} />}
+        {view === 'scan' && (
+          <Scan
+            scanned={items.filter((entry) => entry.source === 'scan')}
+            onScan={addScan}
+          />
+        )}
+        {view === 'inventory' && <Inventory items={items} query={query} />}
         {view === 'pick' && (
           <Pick pick={pick} picked={picked} onConfirm={confirmPick} />
         )}
@@ -111,6 +128,6 @@ export default function App() {
           <Platforms pending={pending} onReserve={reserveConnector} />
         )}
       </main>
-    </div>
+    </>
   )
 }

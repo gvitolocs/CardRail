@@ -2,75 +2,66 @@ import { eur, locationLabel } from '../core/canonical.js'
 
 export function Pick({ pick, picked, onConfirm }) {
   return (
-    <div className="view">
-      <header className="page-head">
-        <p className="eyebrow">CardTrader orders in · one walk out</p>
-        <h1>Pick Run #{pick.number}</h1>
-        <p className="lede">
-          The marketplace listed these copies in the order the sales arrived.
-          CardRail reorders them by shelf position so the seller crosses Box 04 once.
-        </p>
-      </header>
-
-      <p className="path-banner">
-        {pick.stops.map((stop, index) => (
-          <span key={stop}>
-            {index > 0 && <i>→</i>}
-            {stop}
-          </span>
-        ))}
+    <section>
+      <p className="kicker">CardTrader orders in</p>
+      <h1 className="page-title">Pick Run #{pick.number}</h1>
+      <p className="page-sub">
+        The sales arrived in marketplace order. The walk below follows the shelf.
       </p>
 
-      <section className="split">
-        <article className="panel">
-          <header className="panel-head">
-            <h2>As CardTrader sent them</h2>
-            <span>{pick.arrival.length} lines</span>
-          </header>
-          <ol className="orders">
-            {pick.arrival.map((line, index) => (
-              <li key={`in-${line.key}`}>
-                <span className="idx">{index + 1}</span>
-                <div>
-                  <strong>{line.item.identity.name}</strong>
-                  <span>
-                    {line.orderRef} · {locationLabel(line.item.location)}
-                  </span>
-                </div>
-              </li>
-            ))}
-          </ol>
-        </article>
+      <div className="pick-path">
+        {pick.stops.map((stop, index) => (
+          <span key={stop}>
+            {stop}
+            {index < pick.stops.length - 1 && <span className="arrow"> → </span>}
+          </span>
+        ))}
+      </div>
 
-        <article className="panel panel-path">
-          <header className="panel-head">
-            <h2>Shelf order</h2>
-            <span>{picked ? 'Confirmed' : 'Walk this'}</span>
-          </header>
-          <ol className="path">
+      <div className="pick-cols">
+        <div className="panel">
+          <h3>As CardTrader sent them</h3>
+          <ul className="arrival-list">
+            {pick.arrival.map((line, index) => (
+              <li className="arrival-item" key={`in-${line.key}`}>
+                <span className="idx">{index + 1}</span>
+                <img src={line.item.art} alt="" />
+                <div className="arrival-main">
+                  <div className="nm">{line.item.identity.name}</div>
+                  <div className="ref">{line.orderRef}</div>
+                </div>
+                <span className="arrival-loc">{locationLabel(line.item.location)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="panel">
+          <h3>Shelf order</h3>
+          <ul className="line-list">
             {pick.lines.map((line) => (
-              <li key={line.key} className={picked ? 'is-done' : ''}>
-                <b>{line.position}</b>
-                <div>
-                  <strong>{line.item.identity.name}</strong>
-                  <span>
-                    {line.orderRef} · {eur(line.item.price)} · qty {line.item.quantity}
-                  </span>
+              <li className="line-item" key={line.key}>
+                <span className="line-pos">{line.position}</span>
+                <img src={line.item.art} alt="" />
+                <div className="line-main">
+                  <div className="nm">{line.item.identity.name}</div>
+                  <div className="ref">{line.orderRef}</div>
+                </div>
+                <div className="line-right">
+                  <div className="p">{eur(line.item.price)}</div>
+                  <div className="q">× {line.item.quantity}</div>
                 </div>
               </li>
             ))}
-          </ol>
-          <button type="button" className="btn" disabled={picked} onClick={onConfirm}>
-            {picked ? 'Quantities synced' : 'Confirm cards and sync'}
-          </button>
-          {picked && (
-            <p className="hint">
-              Each copy is now zero on the rail, on CardTrader, and on Pokoin.
-              The next order will not sell it twice.
-            </p>
-          )}
-        </article>
-      </section>
-    </div>
+          </ul>
+        </div>
+      </div>
+
+      <div className="actions" style={{ marginTop: 22 }}>
+        <button type="button" className="btn btn-primary" onClick={onConfirm} disabled={picked}>
+          {picked ? 'Quantities synced' : 'Confirm cards and sync'}
+        </button>
+      </div>
+    </section>
   )
 }

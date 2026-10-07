@@ -1,93 +1,70 @@
-import { samplePokoinSync, openSlots } from '../data/demo.js'
+import { openSlots, samplePokoinSync } from '../data/demo.js'
 
-const live = [
-  {
-    id: 'cardtrader',
-    name: 'CardTrader',
-    detail: 'Seller account · orders and listings',
-  },
-  {
-    id: 'pokoin',
-    name: 'Pokoin',
-    detail: 'First client of the rail · not the product',
-  },
+const LIVE = [
+  { id: 'cardtrader', name: 'CardTrader', status: 'Live' },
+  { id: 'pokoin', name: 'Pokoin', status: 'Live' },
 ]
 
 export function Platforms({ pending, onReserve }) {
   return (
-    <div className="view">
-      <header className="page-head">
-        <p className="eyebrow">Same core, another adapter</p>
-        <h1>Connected platforms</h1>
-        <p className="lede">
-          CardRail does not belong to Pokoin. Pokoin plugs in the way CardTrader
-          does. The next marketplace is another connector, not a rewrite.
-        </p>
-      </header>
+    <section>
+      <p className="kicker">Same core, another adapter</p>
+      <h1 className="page-title">Connected platforms</h1>
+      <p className="page-sub">
+        Pokoin plugs in the same way CardTrader does. The next marketplace is another connector.
+      </p>
 
-      <ul className="platforms">
-        {live.map((platform) => (
-          <li key={platform.id}>
-            <i className="dot dot-on" />
-            <div>
-              <strong>{platform.name}</strong>
-              <span>{platform.detail}</span>
-            </div>
-            <em>Live</em>
-          </li>
+      <div className="plat-list">
+        {LIVE.map((platform) => (
+          <div className="plat-row" key={platform.id}>
+            <span className="dot dot-live" />
+            <span className="plat-name">{platform.name}</span>
+            <span className="spacer" />
+            <span className="plat-status">{platform.status}</span>
+          </div>
         ))}
         {openSlots
           .filter((slot) => pending.includes(slot.id))
           .map((slot) => (
-            <li key={slot.id}>
-              <i className="dot dot-wait" />
-              <div>
-                <strong>{slot.name}</strong>
-                <span>Connector slot reserved · {slot.note}</span>
-              </div>
-              <em>Pending</em>
-            </li>
+            <div className="plat-row" key={slot.id}>
+              <span className="dot dot-pending" />
+              <span className="plat-name">{slot.name}</span>
+              <span className="spacer" />
+              <span className="plat-status">Pending</span>
+            </div>
           ))}
-      </ul>
+      </div>
 
-      <details className="add-market">
+      <details className="add">
         <summary>+ Add marketplace</summary>
-        <ul>
-          {openSlots.map((slot) => (
-            <li key={slot.id}>
-              <div>
-                <strong>{slot.name}</strong>
-                <span>{slot.note}</span>
+        <div className="slot-list">
+          {openSlots.map((slot) => {
+            const reserved = pending.includes(slot.id)
+            return (
+              <div className="slot" key={slot.id}>
+                <span className="nm">
+                  {slot.name}
+                  <span className="page-sub" style={{ display: 'block', margin: 0 }}>
+                    {slot.note}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => onReserve(slot.id)}
+                  disabled={reserved}
+                >
+                  {reserved ? 'Reserved' : 'Reserve'}
+                </button>
               </div>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                disabled={pending.includes(slot.id)}
-                onClick={() => onReserve(slot.id)}
-              >
-                {pending.includes(slot.id) ? 'Reserved' : 'Reserve connector'}
-              </button>
-            </li>
-          ))}
-        </ul>
+            )
+          })}
+        </div>
       </details>
 
-      <article className="panel sync-sample">
-        <header className="panel-head">
-          <h2>Last Pokoin sync, after the adapter</h2>
-          <span>canonical</span>
-        </header>
-        <p className="card-name">{samplePokoinSync.identity.name}</p>
-        <p className="card-meta">
-          {samplePokoinSync.identity.setName} · {samplePokoinSync.identity.number} ·{' '}
-          {samplePokoinSync.language} · {samplePokoinSync.condition} ·{' '}
-          {samplePokoinSync.printing}
-        </p>
-        <p className="hint">
-          The raw Pokoin listing id {samplePokoinSync.externalId} stays inside the
-          connector. The core only keeps identity, condition, printing, quantity, and price.
-        </p>
-      </article>
-    </div>
+      <p className="sync-note">
+        Last Pokoin sync: <b>{samplePokoinSync.identity.name}</b>
+      </p>
+    </section>
   )
 }

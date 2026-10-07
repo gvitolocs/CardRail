@@ -1,96 +1,67 @@
-import { useMemo, useState } from 'react'
 import { eur, gameLabel, locationLabel } from '../core/canonical.js'
-import { railSize } from '../data/demo.js'
 
-export function Inventory({ items }) {
-  const [query, setQuery] = useState('')
-  const listed = useMemo(() => {
-    const needle = query.trim().toLowerCase()
-    const sorted = items.slice().sort((a, b) => a.location.position - b.location.position)
-    if (!needle) return sorted
-    return sorted.filter((entry) => {
-      const blob = [
+export function Inventory({ items, query }) {
+  const needle = (query || '').trim().toLowerCase()
+  const filtered = items
+    .slice()
+    .sort((a, b) => a.location.position - b.location.position)
+    .filter((entry) => {
+      if (!needle) return true
+      const hay = [
         entry.identity.name,
         entry.identity.setName,
         entry.identity.number,
-        entry.language,
-        entry.printing,
-        locationLabel(entry.location),
         gameLabel(entry.identity.game),
+        locationLabel(entry.location),
       ]
         .join(' ')
         .toLowerCase()
-      return blob.includes(needle)
+      return hay.includes(needle)
     })
-  }, [items, query])
 
   return (
-    <div className="view">
-      <header className="page-head">
-        <p className="eyebrow">Box 04 in focus · rail holds {railSize.toLocaleString('en-GB')}</p>
-        <h1>Physical inventory</h1>
-        <p className="lede">
-          Location belongs to CardRail. Listings are pointers back to whichever
-          marketplace currently offers the copy.
-        </p>
-      </header>
-
-      <label className="search">
-        <span>Find a card or a position</span>
-        <input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Umbreon, 1284, Lorcana…"
-        />
-      </label>
-
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Card</th>
-              <th>Print</th>
-              <th>Qty</th>
-              <th>Price</th>
-              <th>Location</th>
-              <th>Listings</th>
-            </tr>
-          </thead>
-          <tbody>
-            {listed.map((entry) => (
-              <tr key={entry.id} className={entry.quantity === 0 ? 'is-out' : ''}>
-                <td>
-                  <strong>{entry.identity.name}</strong>
-                  <span>
-                    {gameLabel(entry.identity.game)} · {entry.identity.setName} ·{' '}
-                    {entry.identity.number}
+    <section>
+      <p className="kicker">Box 04 in focus</p>
+      <h1 className="page-title">{needle ? `Results for “${query.trim()}”` : 'Physical inventory'}</h1>
+      <p className="page-sub">
+        {filtered.length} cards on this aisle. Location stays on the rail. Listings point back out.
+      </p>
+      <div className="grid">
+        {filtered.map((entry) => (
+          <article key={entry.id} className={'tile' + (entry.quantity === 0 ? ' is-out' : '')}>
+            <img className="photo" src={entry.art} alt={entry.identity.name} />
+            <div className="badges">
+              <img className="chip" src={entry.chip} alt={entry.condition} />
+              <img className="flag" src={entry.flag} alt={entry.language} />
+              <span className="game">{gameLabel(entry.identity.game)}</span>
+            </div>
+            <div>
+              <div className="tile-name">{entry.identity.name}</div>
+              <div className="tile-set">
+                {entry.identity.setName}
+                {entry.identity.number ? ` · ${entry.identity.number}` : ''}
+              </div>
+            </div>
+            <div className="tile-loc">{locationLabel(entry.location)}</div>
+            <div className="listings">
+              {entry.listings.length === 0 ? (
+                <span className="listing">On rail</span>
+              ) : (
+                entry.listings.map((listing) => (
+                  <span className="listing" key={listing.externalId}>
+                    {listing.platform === 'cardtrader' ? 'CardTrader' : 'Pokoin'}
+                    {listing.quantity === 0 ? ' · 0' : ''}
                   </span>
-                </td>
-                <td>
-                  {entry.language} · {entry.condition}
-                  <span>{entry.printing}</span>
-                </td>
-                <td className="num">{entry.quantity}</td>
-                <td className="num">{eur(entry.price)}</td>
-                <td className="mono">{locationLabel(entry.location)}</td>
-                <td>
-                  {entry.listings.length === 0 ? (
-                    <span className="pill">On rail</span>
-                  ) : (
-                    entry.listings.map((listing) => (
-                      <span key={listing.externalId} className={`pill pill-${listing.platform}`}>
-                        {listing.platform === 'cardtrader' ? 'CardTrader' : 'Pokoin'}
-                        {listing.quantity === 0 ? ' · 0' : ''}
-                      </span>
-                    ))
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {listed.length === 0 && <p className="hint empty">No card matches that search.</p>}
+                ))
+              )}
+            </div>
+            <div className="tile-foot">
+              <span className="price">{eur(entry.price)}</span>
+              <span className="qty">× {entry.quantity}</span>
+            </div>
+          </article>
+        ))}
       </div>
-    </div>
+    </section>
   )
 }
