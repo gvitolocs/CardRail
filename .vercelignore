@@ -1,0 +1,5 @@
+# The Vercel site is the Vite app plus api/ and server/; these ship elsewhere.
+backend/
+ios/
+tools/
+scan-web/
