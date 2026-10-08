@@ -53,16 +53,33 @@ final class Recognizer {
         let results = bestFlipped > bestUpright ? flippedResults : uprightResults
 
         lastTimingMs = Date().timeIntervalSince(started) * 1000
-        return results.map { result in
-            let record = result.index < catalog.records.count
-                ? catalog.records[result.index]
-                : CardRecord(id: "", name: "", number: nil, set: nil, imageURL: nil)
-            return Match(record: record, score: result.score)
+        return Self.catalogMatches(results, records: catalog.records)
+    }
+
+    static func catalogMatches(
+        _ results: [(index: Int, score: Float)], records: [CardRecord]
+    ) -> [Match] {
+        guard let top = results.first,
+              records.indices.contains(top.index),
+              records[top.index].isScanCandidate else {
+            // An old cached catalog can still contain filler vectors. If one
+            // wins, ignore the frame instead of promoting a weaker real card.
+            if let top = results.first, records.indices.contains(top.index),
+               records[top.index].isFiller {
+                ScanDiagnostics.shared.record("recognition ignored filler reference score=\(top.score)")
+            }
+            return []
+        }
+        return results.compactMap { result in
+            guard records.indices.contains(result.index),
+                  records[result.index].isScanCandidate else { return nil }
+            return Match(record: records[result.index], score: result.score)
         }
     }
 
     func verdict(_ matches: [Match]) -> Verdict {
-        guard let top = matches.first else { return .none }
+        guard let top = matches.first, top.record.isScanCandidate else { return .none }
+        let matches = matches.filter { $0.record.isScanCandidate }
         let rival = matches.dropFirst().first { $0.record.name != top.record.name }
         if top.score >= Self.acceptScore,
            top.score - (rival?.score ?? 0) >= Self.acceptMargin {

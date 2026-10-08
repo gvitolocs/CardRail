@@ -193,6 +193,47 @@ class TestExport(unittest.TestCase):
         self.assertFalse(os.path.exists(self.out))
         self.assertFalse(os.path.exists(self.out + ".partial"))
 
+    def test_filler_vectors_and_metadata_removed_together(self):
+        os.makedirs(self.src)
+        write_catalog(self.src, "pokemon_western", 6, "pw")
+        path = os.path.join(self.src, "pokemon_western", "metadata.jsonl")
+        records = EXPORT.read_metadata(path)
+        names = ["Blank Filler Card", "Grass Energy", "Discard Filler Card",
+                 "Go Blank", "WCD 1996", "Training Dummy"]
+        for record, name in zip(records, names):
+            record["name"] = name
+        records[4]["set"] = "Filler Cards"
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(json.dumps(record) for record in records))
+
+        self.assertEqual(self.export(), 0)
+        with open(os.path.join(self.out, "index.json"), encoding="utf-8") as fh:
+            catalog = json.load(fh)["catalogs"][0]
+        self.assertEqual(catalog["count"], 3)
+        with open(os.path.join(self.out, catalog["cards"]["path"]), encoding="utf-8") as fh:
+            rows = json.load(fh)["rows"]
+        self.assertEqual([row[0] for row in rows], ["pw-1", "pw-3", "pw-5"])
+        self.assertEqual([row[1] for row in rows], ["Grass Energy", "Go Blank", "Training Dummy"])
+
+        source = np.load(os.path.join(self.src, "pokemon_western", "embeddings.npy"))
+        expected = source[[1, 3, 5]].astype(np.float32)
+        expected /= np.linalg.norm(expected, axis=1, keepdims=True)
+        actual = np.fromfile(os.path.join(self.out, catalog["embeddings"]["path"]),
+                             dtype="<f2").reshape(3, 128)
+        np.testing.assert_array_equal(actual, expected.astype("<f2"))
+
+    def test_all_filler_catalog_has_no_candidates(self):
+        os.makedirs(self.src)
+        write_catalog(self.src, "pokemon_western", 1, "pw")
+        path = os.path.join(self.src, "pokemon_western", "metadata.jsonl")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"public_id": "pw-0", "name": "Blank Filler Card"}, fh)
+        self.assertEqual(self.export(), 0)
+        with open(os.path.join(self.out, "index.json"), encoding="utf-8") as fh:
+            catalog = json.load(fh)["catalogs"][0]
+        self.assertEqual(catalog["count"], 0)
+        self.assertEqual(catalog["embeddings"]["bytes"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

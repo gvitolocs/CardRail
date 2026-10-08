@@ -16,6 +16,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
 from datetime import datetime, timezone
@@ -49,6 +50,12 @@ CATALOGS = [
 ]
 
 FIELDS = ["id", "name", "number", "set", "image"]
+FILLER_CARD = re.compile(r"\bfiller[\s_-]+cards?\b", re.IGNORECASE)
+
+
+def is_filler(record):
+    return any(FILLER_CARD.search(str(record.get(field) or ""))
+               for field in ("name", "set"))
 
 
 def read_metadata(path):
@@ -127,6 +134,15 @@ def export_catalog(src, partial, entry_spec):
             file=sys.stderr,
         )
         return None
+
+    keep = np.array([not is_filler(record) for record in records], dtype=bool)
+    excluded = len(records) - int(keep.sum())
+    if excluded:
+        # Apply the same mask to vectors and metadata; removing only names
+        # would silently associate every later vector with the wrong card.
+        embeddings = embeddings[keep]
+        records = [record for record, retained in zip(records, keep) if retained]
+        print(f"{catalog_id}: excluded {excluded} filler card references")
 
     dest_dir = os.path.join(partial, catalog_id)
     os.makedirs(dest_dir, exist_ok=True)

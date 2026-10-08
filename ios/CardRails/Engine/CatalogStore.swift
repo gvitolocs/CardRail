@@ -48,6 +48,21 @@ struct CardRecord: Codable, Hashable, Sendable {
     let number: String?
     let set: String?
     let imageURL: URL?
+
+    /// Printing filler sheets are catalog entries, but never scan candidates.
+    /// Match the specific category, not playable names such as "Go Blank".
+    var isFiller: Bool {
+        [name, set ?? ""].contains {
+            $0.range(of: #"\bfiller[\s_-]+cards?\b"#,
+                     options: [.regularExpression, .caseInsensitive]) != nil
+        }
+    }
+
+    var isScanCandidate: Bool {
+        !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !isFiller
+    }
 }
 
 struct LoadedCatalog {
