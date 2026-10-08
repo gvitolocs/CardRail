@@ -21,6 +21,7 @@ final class CameraController: NSObject, ObservableObject {
     private var device: AVCaptureDevice?
     private var emptyFrameCount = 0
     private var identifiedThisPlacement = false
+    private var lastDiagnosticAt: CFTimeInterval = 0
     private var lastProcessedAt: CFTimeInterval = 0
     private static let minFrameInterval: CFTimeInterval = 0.08
     /// Center of the card that was last identified; a big jump means a new card.
@@ -161,6 +162,7 @@ final class CameraController: NSObject, ObservableObject {
             session.canAddInput(input)
         else {
             session.commitConfiguration()
+            ScanDiagnostics.shared.record("camera configuration failed: back-camera input unavailable")
             return
         }
         session.addInput(input)
@@ -184,9 +186,14 @@ final class CameraController: NSObject, ObservableObject {
         output.setSampleBufferDelegate(self, queue: videoQueue)
         if session.canAddOutput(output) {
             session.addOutput(output)
+            // Keep the sensor buffer unrotated; detection applies .right once.
+            if let connection = output.connection(with: .video), connection.isVideoRotationAngleSupported(0) {
+                connection.videoRotationAngle = 0
+            }
         }
 
         session.commitConfiguration()
+        ScanDiagnostics.shared.record("camera configured output=BGRA orientation=right rawRotation=0")
     }
 
     private func applyTorch(_ on: Bool) {
@@ -203,10 +210,15 @@ final class CameraController: NSObject, ObservableObject {
 
         // Keep detecting after an identification: that is how a removed or
         // swapped card is noticed and the next one gets scanned.
-        let card = try? detector.detect(in: pixelBuffer, orientation: .right)
+        let card: DetectedCard?
+        do { card = try detector.detect(in: pixelBuffer, orientation: .right) }
+        catch {
+            ScanDiagnostics.shared.record("detection failed: \(String(describing: error))")
+            card = nil
+        }
         guard let card else {
             emptyFrameCount += 1
-            if emptyFrameCount >= 4 {
+            if emptyFrameCount >= 8 {
                 stabilizer.reset()
                 identifiedThisPlacement = false
                 identifiedCenter = nil
@@ -237,9 +249,15 @@ final class CameraController: NSObject, ObservableObject {
         guard let recognizer else { return }
 
         let started = Date()
-        guard let matches = try? recognizer.identify(card.image) else { return }
+        let matches: [Match]
+        do { matches = try recognizer.identify(card.image) }
+        catch {
+            ScanDiagnostics.shared.record("recognition failed: \(String(describing: error))")
+            return
+        }
         let ms = Date().timeIntervalSince(started) * 1000
         let verdict = recognizer.verdict(matches)
+        ScanDiagnostics.shared.record("recognition matches=\(matches.count) topScore=\(matches.first?.score ?? 0) ms=\(Int(ms))")
 
         stabilizer.reset()
         if case .none = verdict { return }  // retry on the next stable frames
@@ -279,6 +297,10 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         let now = CACurrentMediaTime()
         guard now - lastProcessedAt >= Self.minFrameInterval else { return }
         lastProcessedAt = now
+        if now - lastDiagnosticAt >= 2 {
+            lastDiagnosticAt = now
+            ScanDiagnostics.shared.record("frames running paused=\(isPaused) recognizer=\(recognizer != nil) rotation=\(connection.videoRotationAngle)")
+        }
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         process(pixelBuffer)
     }

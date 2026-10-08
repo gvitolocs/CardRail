@@ -21,6 +21,8 @@ enum CardDetectorError: Error {
 /// perspective-corrects it into an upright 252x352 portrait crop.
 final class CardDetector {
     private let ciContext: CIContext
+    private var selector = CardRectangleSelector()
+    private var lastDiagnosticAt = Date.distantPast
 
     init() {
         self.ciContext = CIContext(options: [.useSoftwareRenderer: false])
@@ -33,10 +35,17 @@ final class CardDetector {
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: orientation)
         let request = Self.rectangleRequest()
         try handler.perform([request])
-        guard let observation = request.results?.first else { return nil }
-
         let image = CIImage(cvPixelBuffer: pixelBuffer).oriented(orientation)
-        return try card(from: observation, in: image)
+        let observations = request.results ?? []
+        let candidates = observations.map { rectangle($0) }
+        let selected = selector.select(candidates, frameSize: image.extent.size)
+        if Date().timeIntervalSince(lastDiagnosticAt) >= 2 {
+            lastDiagnosticAt = Date()
+            let details = candidates.map { String(format: "aspect=%.3f area=%.3f conf=%.2f", Double($0.aspect(in: image.extent.size)), Double($0.area), Double($0.confidence)) }.joined(separator: "; ")
+            ScanDiagnostics.shared.record("vision frame=\(Int(image.extent.width))x\(Int(image.extent.height)) candidates=\(candidates.count) selected=\(selected.map(String.init) ?? "none") \(details)")
+        }
+        guard let selected else { return nil }
+        return try card(from: observations[selected], in: image)
     }
 
     /// Detect a card in a still photo. If no rectangle is found, fall back to
@@ -47,21 +56,28 @@ final class CardDetector {
         try handler.perform([request])
 
         let image = CIImage(cgImage: still)
-        if let observation = request.results?.first {
-            return try card(from: observation, in: image)
+        let observations = request.results ?? []
+        var stillSelector = CardRectangleSelector()
+        if let selected = stillSelector.select(observations.map { rectangle($0) }, frameSize: image.extent.size) {
+            return try card(from: observations[selected], in: image)
         }
         return centerCrop(still)
     }
 
     private static func rectangleRequest() -> VNDetectRectanglesRequest {
         let request = VNDetectRectanglesRequest()
-        request.minimumAspectRatio = 0.55
-        request.maximumAspectRatio = 0.9
-        request.minimumSize = 0.25
-        request.quadratureTolerance = 20
-        request.minimumConfidence = 0.6
-        request.maximumObservations = 1
+        request.minimumAspectRatio = 0.3
+        request.maximumAspectRatio = 1.0
+        request.minimumSize = 0.1
+        request.quadratureTolerance = 30
+        // Request broad candidates; gate confidence and physical card geometry ourselves.
+        request.minimumConfidence = 0.0
+        request.maximumObservations = 16
         return request
+    }
+
+    private func rectangle(_ observation: VNRectangleObservation) -> CardRectangle {
+        CardRectangle(quad: [uiPoint(observation.topLeft), uiPoint(observation.topRight), uiPoint(observation.bottomRight), uiPoint(observation.bottomLeft)], confidence: observation.confidence)
     }
 
     private func card(
