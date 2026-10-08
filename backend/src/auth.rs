@@ -319,6 +319,7 @@ fn parse_client(client: Option<&str>) -> Result<String, ApiError> {
     match client {
         None | Some("web") => Ok("web".to_string()),
         Some("ios") => Ok("ios".to_string()),
+        Some("android") => Ok("android".to_string()),
         Some(_) => Err(ApiError::bad_request("Unknown client.")),
     }
 }

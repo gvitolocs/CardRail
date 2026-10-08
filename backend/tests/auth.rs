@@ -195,3 +195,31 @@ async fn session_stores_only_token_hash() {
     assert_eq!(stored.0, expected);
     assert_ne!(stored.0, token.as_bytes());
 }
+
+#[tokio::test]
+async fn android_client_can_sign_up_and_unknown_clients_are_refused() {
+    let _guard = lock().await;
+    let (base, pool) = spawn().await;
+    let c = client();
+
+    let resp = c
+        .post(format!("{base}/v1/auth/signup"))
+        .json(&serde_json::json!({"email": "droid@example.com", "password": "correct horse", "client": "android"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let stored: String = sqlx::query_scalar("SELECT client FROM sessions LIMIT 1")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(stored, "android");
+
+    let resp = c
+        .post(format!("{base}/v1/auth/signup"))
+        .json(&serde_json::json!({"email": "toaster@example.com", "password": "correct horse", "client": "toaster"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+}

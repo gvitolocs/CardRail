@@ -41,6 +41,10 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
         "002_inventory.sql",
         include_str!("../sql/002_inventory.sql"),
     ),
+    (
+        "003_android_client.sql",
+        include_str!("../sql/003_android_client.sql"),
+    ),
 ];
 
 const CREATE_MIGRATIONS_TABLE: &str = "CREATE TABLE IF NOT EXISTS schema_migrations (\
