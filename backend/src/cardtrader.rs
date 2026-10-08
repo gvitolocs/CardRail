@@ -479,6 +479,7 @@ struct Existing {
     id: String,
     ct_product_id: i64,
     name: String,
+    number: String,
     public_id: String,
     cardtrader_blueprint_id: String,
     language: String,
@@ -571,7 +572,7 @@ async fn import(state: &AppState, account_id: Uuid, token: &str) -> Result<Value
     let map_ms = started.elapsed().as_millis() - export_ms;
 
     let existing: Vec<Existing> = sqlx::query_as(
-        "SELECT seq, id, ct_product_id, name, public_id, cardtrader_blueprint_id, language, condition, printing, \
+        "SELECT seq, id, ct_product_id, name, number, public_id, cardtrader_blueprint_id, language, condition, printing, \
            first_edition, signed, altered, quantity, (price * 100)::bigint AS cents, currency \
          FROM inventory_items WHERE account_id = $1 AND ct_product_id IS NOT NULL",
     )
@@ -584,13 +585,23 @@ async fn import(state: &AppState, account_id: Uuid, token: &str) -> Result<Value
     let (mut up_seq, mut up_qty, mut up_price, mut up_cond, mut up_lang, mut up_print) =
         (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
     let (mut up_fe, mut up_sg, mut up_al, mut up_cur) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    let mut up_num: Vec<String> = Vec::new();
     let (mut ev_item, mut ev_name, mut ev_delta, mut ev_cause) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     let mut unchanged = 0usize;
     let mut copies = 0i64;
     for (m, info) in mapped.iter().zip(&details) {
         copies += i64::from(m.quantity);
         let (name, set_name, number, art, public_id, blueprint) = match info {
-            Some(i) => (i.name.clone(), i.set.clone(), i.number.clone(), i.image.clone(), (m.blueprint_id * 2).to_string(), String::new()),
+            // CardTrader's collector number (even when empty) is the plain one sellers
+            // and Power Tools use; catalog numbers carry labels ("Pokémon League 181/214", "No.095").
+            Some(i) => (
+                i.name.clone(),
+                i.set.clone(),
+                m.number.clone(),
+                i.image.clone(),
+                (m.blueprint_id * 2).to_string(),
+                String::new(),
+            ),
             None => (
                 m.name.clone(),
                 m.expansion_id.and_then(|id| expansions.get(&id).cloned()).unwrap_or_default(),
@@ -613,7 +624,8 @@ async fn import(state: &AppState, account_id: Uuid, token: &str) -> Result<Value
                     && e.altered == m.altered
                     && e.currency == m.currency
                     && e.public_id == public_id
-                    && e.cardtrader_blueprint_id == blueprint;
+                    && e.cardtrader_blueprint_id == blueprint
+                    && e.number == number;
                 if same {
                     unchanged += 1;
                     continue;
@@ -634,6 +646,7 @@ async fn import(state: &AppState, account_id: Uuid, token: &str) -> Result<Value
                 up_sg.push(m.signed);
                 up_al.push(m.altered);
                 up_cur.push(m.currency.clone());
+                up_num.push(crate::domain::truncate(&number, 160));
             }
             None => {
                 let id = format!("cr_{}", Uuid::new_v4());
@@ -722,9 +735,9 @@ async fn import(state: &AppState, account_id: Uuid, token: &str) -> Result<Value
             sqlx::query(
                 "UPDATE inventory_items i SET quantity = u.qty, price = u.price::numeric, condition = u.cond, \
                    language = u.lang, printing = u.print, first_edition = u.fe, signed = u.sg, altered = u.al, \
-                   currency = u.cur, version = i.version + 1, updated_at = now() \
+                   currency = u.cur, number = u.num, version = i.version + 1, updated_at = now() \
                  FROM UNNEST($2::int8[], $3::int4[], $4::text[], $5::text[], $6::text[], $7::text[], $8::bool[], \
-                   $9::bool[], $10::bool[], $11::text[]) AS u(seq, qty, price, cond, lang, print, fe, sg, al, cur) \
+                   $9::bool[], $10::bool[], $11::text[], $12::text[]) AS u(seq, qty, price, cond, lang, print, fe, sg, al, cur, num) \
                  WHERE i.account_id = $1 AND i.seq = u.seq",
             )
             .bind(account_id)
@@ -738,6 +751,7 @@ async fn import(state: &AppState, account_id: Uuid, token: &str) -> Result<Value
             .bind(&up_sg)
             .bind(&up_al)
             .bind(&up_cur)
+            .bind(&up_num)
             .execute(&mut *tx)
             .await?;
         }

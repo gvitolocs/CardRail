@@ -141,9 +141,9 @@ async fn cardtrader_import_mirrors_the_export_and_csv_sets_locations() {
 
     // Sold one Oddish, Gloom sold out, a new product listed.
     *products.lock().unwrap() = json!([
-        product(1, 109849, 1, 150, json!({ "condition": "Slightly Played", "pokemon_language": "it", "pokemon_reverse": true })),
+        product(1, 109849, 1, 150, json!({ "condition": "Slightly Played", "pokemon_language": "it", "pokemon_reverse": true, "collector_number": "001/098" })),
         product(3, 555, 1, 500, json!({ "pokemon_language": "it" })),
-        product(5, 109851, 3, 25, json!({ "condition": "Played", "pokemon_language": "it" })),
+        product(5, 109851, 3, 25, json!({ "condition": "Played", "pokemon_language": "it", "collector_number": "002/098" })),
     ]);
     let again = c.post(format!("{base}/v1/integrations/cardtrader/sync")).send().await.unwrap();
     assert_eq!(again.status(), 202);

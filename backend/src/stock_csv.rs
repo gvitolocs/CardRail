@@ -75,11 +75,18 @@ pub fn compact_collector(value: &str) -> String {
     if raw.is_empty() {
         return raw;
     }
-    let raw = re(&RARITY, r"^.*\|\s*").replace(&raw, "").into_owned();
-    if let Some(c) = re(&SLASH, r"^0*(\d+)\s*/\s*0*\d+").captures(&raw) {
+    // Rarity before a bar ("Rare | 070/131"); a label after it ("043 | Stamp") keeps the number.
+    let stripped = re(&RARITY, r"^.*\|\s*").replace(&raw, "").into_owned();
+    let raw = if stripped.chars().any(|c| c.is_ascii_digit()) {
+        stripped
+    } else {
+        raw.split('|').next().unwrap_or("").trim().to_string()
+    };
+    // "181/214" anywhere: catalogs prefix variants ("Pokémon League 181/214").
+    if let Some(c) = re(&SLASH, r"(?:^|[^0-9a-z])0*(\d+)\s*/\s*0*\d+").captures(&raw) {
         return c[1].to_string();
     }
-    if let Some(c) = re(&BARE, r"^0*(\d+)\b").captures(&raw) {
+    if let Some(c) = re(&BARE, r"^(?:no\.?\s*)?0*(\d+)\b").captures(&raw) {
         return c[1].to_string();
     }
     re(&ZEROS, r"^0+(\d)").replace(&raw, "$1").into_owned()
@@ -831,6 +838,11 @@ mod tests {
         assert_eq!(compact_collector("0"), "0");
         assert_eq!(compact_collector("OP05-006"), "op05-006");
         assert_eq!(compact_collector("SWSH050"), "swsh050");
+        assert_eq!(compact_collector("Pokémon League 181/214"), "181");
+        assert_eq!(compact_collector("Non-Holo | B&B Kit 189/198"), "189");
+        assert_eq!(compact_collector("No.220"), "220");
+        assert_eq!(compact_collector("043 | Holiday Snowflake Stamp"), "43");
+        assert_eq!(compact_collector("TG05/TG30"), "tg05/tg30");
         assert_eq!(compact_key("Pokémon  Ex-Δ"), "pokemonex");
     }
 
