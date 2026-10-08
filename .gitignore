@@ -25,3 +25,13 @@ dist-ssr
 *.sln
 *.sw?
 .env*
+.env*.local
+
+# Rust API build output
+backend/target/
+
+# iPhone catalog exports (served by the API, not committed)
+tools/catalogs/out/
+
+# Copy of the live scan.pokoin.com page, used as a reference only
+scan-web/.reference/

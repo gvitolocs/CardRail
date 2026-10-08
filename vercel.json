@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/connect",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/api/v1/ebay",
+      "destination": "/api/v1/developer?resource=ebay-draft"
+    }
+  ]
+}

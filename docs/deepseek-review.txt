@@ -1,0 +1,69 @@
+I read both files plus the code they depend on (server store, inventory/sales handlers, canonical, adapters, tests). No files were edited and no network/Pokoin calls were made.
+
+## Verdict on the four properties
+
+| Property | Status |
+|---|---|
+| First-party device-cookie private Blob store with ETag CAS | **Implemented, mostly correct** (`server/workspace.js`). Minor bootstrap/retry caveats below. |
+| Sale + ledger + queued outbox in one transaction | **Implemented** — one `transact` conditional write. Missing the oversell exception event. |
+| No channel write without verified grants | **Only holds because no dispatcher exists.** The grant predicate itself accepts an unverified registration. |
+| CardTrader deltas from last confirmed quantities | **Half right.** The push path is correct; the *observe* path fabricates and advances the "confirmed" mirror. |
+
+`grep` confirms no private Pokoin routes remain (`marketplace-collection-summary`, `sold-history`, `scan-*`, `uidFromKey`, bearer identity); catalog goes only to public `marketplace-search-page`.
+
+## Correctness defects
+
+**1. Origin mirror is fabricated and advances the "last confirmed" base (sync.js:39‑58).**
+`syncListing` sets the origin listing to `max(0, current + meta.requestedDelta)` and writes that into `lastSyncedQuantity`. `requestedDelta` is the unclamped CR request, not the channel's observed result, and it is never clamped to `targetQuantity`. Demonstrated: CR qty 2, CardTrader mirror 8, CT sale 5 → CR goes to 0, `lastSyncedQuantity` becomes 3, intent delta `-8`. The next CardTrader write is based on 3, not a confirmed value, and CardTrader is left listing 3 against a Book of 0.
+Fix: give `syncListing` an `observedQuantity` from the webhook/read; set the origin mirror to that. If the channel result is unknown, **do not** advance `lastSyncedQuantity` — mark `syncStatus:'stale'` and enqueue a read-first observe. Record a divergence/exception event when `observed !== targetQuantity`.
+
+**2. No staleness / read-first signal anywhere (sync.js:35‑37).**
+`lastSyncedAt`, `linkState`, `requiresRead`/`readFirst` are absent repo-wide (grep empty). `delta = target - lastSyncedQuantity` is emitted unconditionally, so an adapter can blindly apply a delta computed from a stale mirror and double-decrement CardTrader (§3.128, §4).
+Fix: carry `lastSyncedAt` + sync window; set `requiresRead: true` when the mirror is unconfirmed/older than the window; adapter reads, then recomputes `delta = target - confirmed`.
+
+**3. `isLinked` treats an unverified registration as a writable grant (sync.js:19‑28; server/inventory.js:72, 46).**
+The link action writes `linked:true, status:'awaiting-grant'` with no `credentialRef`; `isLinked` returns true and `syncListing` emits `write:true`. The only thing preventing a remote write is the hardcoded `status:'blocked'` in `recordResult`. Cardmarket's Pokoin prerequisite also accepts an *awaiting-grant* Pokoin link.
+Fix: require `status === 'granted'` and a non-revoked `credentialRef` in `isLinked`; model `channel_links { externalAccountRef, credentialRef, linkedAt, revokedAt }`; carry the grant ref on the intent and let the worker verify it before dispatch.
+
+**4. Unlinked channels are not marked stale (sync.js:60‑88).**
+Both the inactive and unlinked branches return the listing unchanged, so a Cardmarket listing with no Pokoin-account link keeps its previous `syncStatus` instead of `stale` (§4). `listing.linkState` is never read/written.
+Fix: return `{ ...listing, syncStatus:'stale', linkState:'unlinked' }` on skip.
+
+**5. Delivery order contradicts the contract; unknown platforms sort first (sync.js:139).**
+Code order is `pokoin, cardmarket, cardtrader, ebay`; contract §3.7 is `pokoin(10) → cardmarket(20) → ebay(30) → cardtrader(40)`. Worse, `order.indexOf` returns `-1` for any unknown platform, sorting it ahead of everything.
+Fix: `const P = { pokoin:10, cardmarket:20, ebay:30, cardtrader:40 }` and sort by `(P[a.platform] ?? Infinity) - (P[b.platform] ?? Infinity)`; reject unknown platforms. Update the test at `tests/inventory.test.js:16`, which currently enshrines the wrong order.
+
+**6. Channel field names leak into core via `intent.body` (sync.js:105).**
+`body: { delta_quantity } | { quantity }` violates §9 (intents carry no channel payload) and `quantity` is likely the wrong Pokoin field (§8.11 expects adapter-declared field names).
+Fix: delete `body`; let the adapter map `{ mode, delta, targetQuantity }`.
+
+**7. Origin/restock intents are mislabeled (sync.js:39‑58, 210‑219).**
+Every origin action reports `action:'observe_sale'`, `reason:'sale already happened on origin channel'`, even for `syncRestock` (a cancellation), and the intent `delta` can be negative while the mirror moves up. `syncRestock` is not called by the server at all.
+Fix: derive action/reason from `meta.kind`/`cause` (`observe_sale` vs `observe_cancel`) and make the intent delta consistent with the observed change; wire or delete `syncRestock`.
+
+**8. A sale cannot name the specific origin listing (server/inventory.js:102‑111).**
+`recordSale` takes `itemId`+`channel` only and no `externalId`, but `syncListing` observes *every* listing where `listing.platform === origin`. An item with two offers on one channel observes both.
+Fix: require `externalId` (contract §3 request) and pass the matched listing id so only that listing is the origin.
+
+**9. Deterministic event ids are discarded; hashes are 32-bit (sync.js:6‑17, 144; server/inventory.js:38‑39).**
+`eventId(key)` is deterministic, then overwritten with `randomUUID()`. Reconcile ids include wall-clock `at` (sync.js:225, 240, 274) and can collide in the same millisecond. 32-bit FNV-1a also has real collision odds.
+Fix: keep the key-derived id for both event and ledger (SHA-256 truncated to ≥128 bits); derive reconcile ids from `exportId`/payload hash, not `at`.
+
+**10. Synthetic idempotency keys silently collide / re-apply (sync.js:189, 199).**
+`syncSale` falls back to `platform:${orderRef||'manual'}:${lineId||item.id}` — two no-`orderRef` sales of the same item collide and the second is swallowed. `syncAdjust` bakes in `Date.now()`, so a retried adjust always re-applies. The server always supplies a key today, so this is latent.
+Fix: throw when the caller’s key is absent; require `orderRef`+`lineId`; never synthesize.
+
+**11. Oversell has no exception event (server/inventory.js:34‑49; contract §3.135).**
+Only `event.oversell`/`ledgerRow.oversell` are stored; no exception row is raised.
+Fix: when `oversell > 0`, unshift an `exception` event in the same `transact` write.
+
+**12. Superseding outbox rows deletes delivered history (server/inventory.js:45).**
+The filter has no `status` check, so once a worker records `status:'sent'`, the next sale erases that row and can re-send it. The outbox key also appends `:targetQuantity` (sync.js:107), contradicting §5’s `saleKey:platform:listingExternalId`.
+Fix: only supersede non-terminal rows (`queued`/`blocked`); key by `saleKey:platform:listingExternalId` and reject a key already delivered.
+
+## Minor / lower priority
+
+- `server/workspace.js:54` — a brand-new client must `GET` before any `POST` (guard rejects before `device()` can mint the cookie). Document it or set the cookie in `guard`.
+- `server/workspace.js:24‑42` — 5 CAS attempts then a hard 409; `revision` is maintained but never used as a precondition (ETag is the real one — fine).
+- `server/inventory.js:9‑31` + `api/v1/inventory.js:10‑12` — the photo `put` runs outside the CAS transaction, so a permanently failed commit can orphan a photo (content-addressed and ownership-checked, so low impact).
+- Route drift vs §2: `/api/v1/catalog` instead of `/api/v1/public/catalog/*`; no `capture/sessions`, `stock-events`, `channels`, or `listings` handlers.
