@@ -599,33 +599,20 @@ async fn post_scans(
         return Err(location_required());
     }
 
-    let existing: Vec<(Value, i32)> = sqlx::query_as(
-        "SELECT location, quantity FROM inventory_items \
-         WHERE account_id = $1 AND location IS NOT NULL",
+    // Only the target box matters: ask Postgres for its last occupied position
+    // (indexed on account + box) instead of loading every item of the account.
+    let occupied_end: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(GREATEST( \
+             CASE WHEN jsonb_typeof(location->'end') = 'number' THEN (location->>'end')::bigint ELSE 0 END, \
+             CASE WHEN jsonb_typeof(location->'position') = 'number' \
+                  THEN (location->>'position')::bigint + GREATEST(quantity, 1) - 1 ELSE 0 END)), 0)::bigint \
+         FROM inventory_items WHERE account_id = $1 AND location->>'box' = $2",
     )
     .bind(session.account_id)
-    .fetch_all(&mut *tx)
+    .bind(&storage_label)
+    .fetch_one(&mut *tx)
     .await?;
-
-    let mut occupied: HashMap<String, i64> = HashMap::new();
-    for (location, quantity) in &existing {
-        let Some(box_name) = location.get("box").and_then(Value::as_str) else {
-            continue;
-        };
-        if box_name.is_empty() {
-            continue;
-        }
-        let position = location
-            .get("position")
-            .and_then(Value::as_i64)
-            .unwrap_or(0);
-        let end = location.get("end").and_then(Value::as_i64).unwrap_or(0);
-        let item_end = end.max(position + i64::from(*quantity).max(1) - 1);
-        let entry = occupied.entry(box_name.to_string()).or_insert(0);
-        if item_end > *entry {
-            *entry = item_end;
-        }
-    }
+    let mut occupied: HashMap<String, i64> = HashMap::from([(storage_label.clone(), occupied_end)]);
 
     let mut locations = Vec::with_capacity(valid.len());
     for card in &valid {

@@ -1,3 +1,7 @@
+/// jemalloc hands freed memory back to the OS; glibc kept ~2 GB after a 50k-card load test.
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 use std::sync::Arc;
 
 use cardrails_api::config::Config;
