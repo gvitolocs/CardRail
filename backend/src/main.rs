@@ -25,6 +25,12 @@ async fn main() -> anyhow::Result<()> {
         pool,
         config: Arc::clone(&config),
     };
+    if config.cardtrader_sync_minutes > 0 && config.secret_key.is_some() {
+        cardrails_api::cardtrader::spawn_scheduler(
+            state.clone(),
+            std::time::Duration::from_secs(config.cardtrader_sync_minutes * 60),
+        );
+    }
     let router = app(state);
 
     let listener = TcpListener::bind(&config.bind).await?;

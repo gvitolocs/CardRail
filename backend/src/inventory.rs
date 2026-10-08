@@ -221,10 +221,15 @@ async fn get_inventory_compact(
     State(state): State<AppState>,
     session: Session,
 ) -> Result<Response, ApiError> {
+    // The ordered json_agg of a large inventory sorts in memory instead of spilling
+    // to temp files with the 4 MB default.
+    let mut tx = state.pool.begin().await?;
+    sqlx::query("SET LOCAL work_mem = '64MB'").execute(&mut *tx).await?;
     let body: String = sqlx::query_scalar(compact_sql())
         .bind(session.account_id)
-        .fetch_one(&state.pool)
+        .fetch_one(&mut *tx)
         .await?;
+    tx.commit().await?;
     Ok(json_response(body))
 }
 
@@ -253,12 +258,14 @@ fn compact_sql() -> &'static str {
              i.version, \
              (CASE WHEN i.first_edition THEN {fe} ELSE 0 END) + (CASE WHEN i.signed THEN {sg} ELSE 0 END) \
              + (CASE WHEN i.altered THEN {al} ELSE 0 END) + (CASE WHEN i.purpose = 'collection' THEN {co} ELSE 0 END) \
-             + (CASE WHEN i.source = 'import' THEN {im} ELSE 0 END)",
+             + (CASE WHEN i.source = 'import' THEN {im} ELSE 0 END) \
+             + (CASE WHEN i.ct_product_id IS NOT NULL THEN {ct} ELSE 0 END)",
             fe = codes::FLAG_FIRST_EDITION,
             sg = codes::FLAG_SIGNED,
             al = codes::FLAG_ALTERED,
             co = codes::FLAG_COLLECTION,
             im = codes::FLAG_IMPORTED,
+            ct = codes::FLAG_CARDTRADER,
         );
         format!(
             "WITH items AS (SELECT * FROM inventory_items WHERE account_id = $1), \
@@ -269,7 +276,7 @@ fn compact_sql() -> &'static str {
                SELECT i.seq, x.ix, \
                  CASE WHEN jsonb_typeof(i.location->'position') = 'number' THEN (i.location->>'position')::bigint END AS pos, \
                  CASE WHEN i.public_id = '' OR i.cardtrader_blueprint_id <> '' OR i.photo_id IS NOT NULL \
-                        OR i.source NOT IN ('scan', 'import') OR i.currency <> 'EUR' OR i.listings <> '[]'::jsonb \
+                        OR i.source NOT IN ('scan', 'import', 'cardtrader') OR i.currency <> 'EUR' OR i.listings <> '[]'::jsonb \
                    THEN json_build_array({base}, json_strip_nulls(json_build_object( \
                      'n', CASE WHEN i.public_id = '' THEN i.name END, \
                      's', CASE WHEN i.public_id = '' THEN i.set_name END, \
@@ -277,7 +284,7 @@ fn compact_sql() -> &'static str {
                      'a', CASE WHEN i.public_id = '' AND i.art <> '' THEN i.art END, \
                      'b', NULLIF(i.cardtrader_blueprint_id, ''), \
                      'p', i.photo_id, \
-                     'src', CASE WHEN i.source NOT IN ('scan', 'import') THEN i.source END, \
+                     'src', CASE WHEN i.source NOT IN ('scan', 'import', 'cardtrader') THEN i.source END, \
                      'c', CASE WHEN i.currency <> 'EUR' THEN i.currency END, \
                      'l', CASE WHEN i.listings <> '[]'::jsonb THEN i.listings END))) \
                    ELSE json_build_array({base}) END AS r \
@@ -315,22 +322,34 @@ fn json_response(body: String) -> Response {
     response
 }
 
+/// One copy as JSON, built by Postgres (`i` = inventory_items, `p` = photos);
+/// the same shape as `item_json`.
+macro_rules! item_json_sql {
+    () => {
+        concat!(
+            "json_build_object(",
+            "'id', i.id, ",
+                "'identity', json_build_object('game', i.game, 'name', i.name, 'setName', i.set_name, ",
+                "'number', i.number, 'publicId', i.public_id, 'cardtraderBlueprintId', i.cardtrader_blueprint_id), ",
+                "'art', i.art, 'language', i.language, 'condition', i.condition, 'printing', i.printing, ",
+                "'firstEdition', i.first_edition, 'signed', i.signed, 'altered', i.altered, 'purpose', i.purpose, ",
+                "'quantity', i.quantity, 'price', i.price::float8, 'currency', i.currency, 'source', i.source, ",
+                "'location', i.location, ",
+                "'scanPhoto', CASE WHEN p.id IS NULL THEN NULL ELSE json_build_object('id', p.id, 'sha256', p.sha256, ",
+                "'bytes', p.bytes, 'capturedAt', to_char(p.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'), ",
+                "'role', 'scan', 'url', '/v1/photos/' || p.id) END, ",
+                "'listings', i.listings, 'version', i.version, ",
+                "'createdAt', to_char(i.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'), ",
+                "'updatedAt', to_char(i.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"')",
+                ")"
+        )
+    };
+}
+
 const INVENTORY_JSON_SQL: &str = concat!(
-    "SELECT COALESCE(json_agg(json_build_object(",
-    "'id', i.id, ",
-    "'identity', json_build_object('game', i.game, 'name', i.name, 'setName', i.set_name, ",
-    "'number', i.number, 'publicId', i.public_id, 'cardtraderBlueprintId', i.cardtrader_blueprint_id), ",
-    "'art', i.art, 'language', i.language, 'condition', i.condition, 'printing', i.printing, ",
-    "'firstEdition', i.first_edition, 'signed', i.signed, 'altered', i.altered, 'purpose', i.purpose, ",
-    "'quantity', i.quantity, 'price', i.price::float8, 'currency', i.currency, 'source', i.source, ",
-    "'location', i.location, ",
-    "'scanPhoto', CASE WHEN p.id IS NULL THEN NULL ELSE json_build_object('id', p.id, 'sha256', p.sha256, ",
-    "'bytes', p.bytes, 'capturedAt', to_char(p.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'), ",
-    "'role', 'scan', 'url', '/v1/photos/' || p.id) END, ",
-    "'listings', i.listings, 'version', i.version, ",
-    "'createdAt', to_char(i.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'), ",
-    "'updatedAt', to_char(i.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"')",
-    ") ORDER BY i.created_at DESC, i.id DESC), '[]'::json)::text ",
+    "SELECT COALESCE(json_agg(",
+    item_json_sql!(),
+    " ORDER BY i.created_at DESC, i.id DESC), '[]'::json)::text ",
     "FROM inventory_items i LEFT JOIN photos p ON p.account_id = i.account_id AND p.id = i.photo_id ",
     "WHERE i.account_id = $1"
 );
@@ -728,14 +747,7 @@ async fn post_scans(
     }
 
     let mut tx = state.pool.begin().await?;
-    ensure_workspace_tx(&mut tx, session.account_id).await?;
-    let (settings, _): (Value, i64) = sqlx::query_as(
-        "SELECT scan_settings, revision FROM workspaces WHERE account_id = $1 FOR UPDATE",
-    )
-    .bind(session.account_id)
-    .fetch_one(&mut *tx)
-    .await?;
-    let settings = merge_settings(&settings);
+    let settings = lock_workspace_tx(&mut tx, session.account_id).await?;
 
     if !settings
         .get("locationConfigured")
@@ -749,77 +761,86 @@ async fn post_scans(
         allocate_locations(&mut tx, session.account_id, &settings, valid.iter().map(|c| c.quantity))
             .await?;
 
-    let mut created_ids = Vec::with_capacity(valid.len());
-    for (card, location) in valid.iter().zip(locations.iter()) {
-        let id = format!("cr_{}", Uuid::new_v4());
-        sqlx::query(
-            "INSERT INTO inventory_items \
-             (id, account_id, game, name, set_name, number, public_id, cardtrader_blueprint_id, \
-              art, language, condition, printing, first_edition, signed, altered, purpose, \
-              quantity, price, source, location, photo_id, listings) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, \
-                     $16, $17, $18::numeric, 'scan', $19, $20, $21)",
-        )
-        .bind(&id)
-        .bind(session.account_id)
-        .bind(&card.game)
-        .bind(&card.name)
-        .bind(&card.set_name)
-        .bind(&card.number)
-        .bind(&card.public_id)
-        .bind(&card.cardtrader_blueprint_id)
-        .bind(&card.art)
-        .bind(&card.language)
-        .bind(&card.condition)
-        .bind(&card.printing)
-        .bind(card.first_edition)
-        .bind(card.signed)
-        .bind(card.altered)
-        .bind(&card.purpose)
-        .bind(card.quantity)
-        .bind(domain::price_string(card.price))
-        .bind(Jsonb(location))
-        .bind(&card.photo_id)
-        .bind(Jsonb(json!([])))
-        .execute(&mut *tx)
-        .await?;
-
-        let event_id = format!("event_{}", Uuid::new_v4().simple());
-        sqlx::query(
-            "INSERT INTO inventory_events (id, account_id, cause, item_id, name, delta) \
-             VALUES ($1, $2, 'scan_capture', $3, $4, $5)",
-        )
-        .bind(&event_id)
-        .bind(session.account_id)
-        .bind(&id)
-        .bind(&card.name)
-        .bind(card.quantity)
-        .execute(&mut *tx)
-        .await?;
-
-        created_ids.push(id);
-    }
-
-    let mut created = Vec::with_capacity(created_ids.len());
-    for id in &created_ids {
-        let row = fetch_item_tx(&mut tx, session.account_id, id).await?;
-        created.push(item_json(&row));
-    }
-
-    let revision = bump_revision_tx(&mut tx, session.account_id).await?;
-    let response = json!({ "items": created, "revision": revision });
-
-    sqlx::query("INSERT INTO idempotency_keys (account_id, key, response) VALUES ($1, $2, $3)")
+    // Copies, their events, the revision, the stored idempotent response and the
+    // response itself in one round trip, whatever the number of cards.
+    let col = |f: fn(&ValidCard) -> String| valid.iter().map(f).collect::<Vec<String>>();
+    let ids: Vec<String> = valid.iter().map(|_| format!("cr_{}", Uuid::new_v4())).collect();
+    let response: String = sqlx::query_scalar(SCAN_INSERT_SQL)
         .bind(session.account_id)
         .bind(key)
-        .bind(Jsonb(&response))
-        .execute(&mut *tx)
+        .bind(&ids)
+        .bind(col(|c| c.game.clone()))
+        .bind(col(|c| c.name.clone()))
+        .bind(col(|c| c.set_name.clone()))
+        .bind(col(|c| c.number.clone()))
+        .bind(col(|c| c.public_id.clone()))
+        .bind(col(|c| c.cardtrader_blueprint_id.clone()))
+        .bind(col(|c| c.art.clone()))
+        .bind(col(|c| c.language.clone()))
+        .bind(col(|c| c.condition.clone()))
+        .bind(col(|c| c.printing.clone()))
+        .bind(valid.iter().map(|c| c.first_edition).collect::<Vec<_>>())
+        .bind(valid.iter().map(|c| c.signed).collect::<Vec<_>>())
+        .bind(valid.iter().map(|c| c.altered).collect::<Vec<_>>())
+        .bind(col(|c| c.purpose.clone()))
+        .bind(valid.iter().map(|c| c.quantity).collect::<Vec<_>>())
+        .bind(col(|c| domain::price_string(c.price)))
+        .bind(locations.iter().map(Value::to_string).collect::<Vec<_>>())
+        .bind(valid.iter().map(|c| c.photo_id.clone()).collect::<Vec<Option<String>>>())
+        .fetch_one(&mut *tx)
         .await?;
 
     tx.commit().await?;
 
-    Ok((StatusCode::CREATED, Json(response)).into_response())
+    let mut created = json_response(response);
+    *created.status_mut() = StatusCode::CREATED;
+    Ok(created)
 }
+
+const SCAN_INSERT_SQL: &str = concat!(
+    "WITH ins AS (",
+    "INSERT INTO inventory_items (id, account_id, game, name, set_name, number, public_id, ",
+    "cardtrader_blueprint_id, art, language, condition, printing, first_edition, signed, altered, ",
+    "purpose, quantity, price, source, location, photo_id, listings) ",
+    "SELECT u.id, $1, u.game, u.name, u.set_name, u.number, u.public_id, u.blueprint, u.art, u.language, ",
+    "u.condition, u.printing, u.fe, u.sg, u.al, u.purpose, u.qty, u.price::numeric, 'scan', u.loc::jsonb, ",
+    "u.photo, '[]'::jsonb ",
+    "FROM UNNEST($3::text[], $4::text[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[], ",
+    "$10::text[], $11::text[], $12::text[], $13::text[], $14::bool[], $15::bool[], $16::bool[], ",
+    "$17::text[], $18::int4[], $19::text[], $20::text[], $21::text[]) ",
+    "AS u(id, game, name, set_name, number, public_id, blueprint, art, language, condition, printing, ",
+    "fe, sg, al, purpose, qty, price, loc, photo) ",
+    "RETURNING *), ",
+    "ev AS (INSERT INTO inventory_events (id, account_id, cause, item_id, name, delta) ",
+    "SELECT 'event_' || replace(gen_random_uuid()::text, '-', ''), $1, 'scan_capture', ins.id, ins.name, ins.quantity FROM ins), ",
+    "rev AS (UPDATE workspaces SET revision = revision + 1, updated_at = now() WHERE account_id = $1 RETURNING revision), ",
+    "resp AS (SELECT json_build_object('items', (SELECT json_agg(",
+    item_json_sql!(),
+    " ORDER BY array_position($3::text[], i.id)) FROM ins i LEFT JOIN photos p ",
+    "ON p.account_id = i.account_id AND p.id = i.photo_id), 'revision', (SELECT revision FROM rev)) AS r), ",
+    "idem AS (INSERT INTO idempotency_keys (account_id, key, response) SELECT $1, $2, r::jsonb FROM resp) ",
+    "SELECT r::text FROM resp"
+);
+
+/// Locks the account's workspace row for the rest of the transaction and returns
+/// its scan settings (merged with defaults). Creates the row the first time.
+async fn lock_workspace_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    account_id: Uuid,
+) -> Result<Value, ApiError> {
+    let select = "SELECT scan_settings FROM workspaces WHERE account_id = $1 FOR UPDATE";
+    let mut row: Option<(Value,)> = sqlx::query_as(select).bind(account_id).fetch_optional(&mut **tx).await?;
+    if row.is_none() {
+        sqlx::query("INSERT INTO workspaces (account_id) VALUES ($1) ON CONFLICT (account_id) DO NOTHING")
+            .bind(account_id)
+            .execute(&mut **tx)
+            .await?;
+        row = sqlx::query_as(select).bind(account_id).fetch_optional(&mut **tx).await?;
+    }
+    let (settings,) = row.ok_or_else(|| ApiError::internal("Workspace missing."))?;
+    Ok(merge_settings(&settings))
+}
+
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

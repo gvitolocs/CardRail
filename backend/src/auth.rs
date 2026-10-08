@@ -65,23 +65,19 @@ impl FromRequestParts<AppState> for Session {
         };
 
         let token_sha256 = Sha256::digest(token.as_bytes()).to_vec();
+        // Lookup and the (at most every 10 minutes) last-seen touch in one round trip.
         let row: Option<(Uuid, String)> = sqlx::query_as(
-            "SELECT a.id, a.email FROM sessions s \
-             JOIN accounts a ON a.id = s.account_id \
-             WHERE s.token_sha256 = $1 AND s.expires_at > now()",
+            "WITH s AS (SELECT a.id, a.email, s.last_seen_at < now() - interval '10 minutes' AS stale \
+               FROM sessions s JOIN accounts a ON a.id = s.account_id \
+               WHERE s.token_sha256 = $1 AND s.expires_at > now()), \
+             touch AS (UPDATE sessions SET last_seen_at = now() \
+               WHERE token_sha256 = $1 AND (SELECT stale FROM s)) \
+             SELECT id, email FROM s",
         )
         .bind(&token_sha256)
         .fetch_optional(&state.pool)
         .await?;
         let (account_id, email) = row.ok_or_else(sign_in_error)?;
-
-        sqlx::query(
-            "UPDATE sessions SET last_seen_at = now() \
-             WHERE token_sha256 = $1 AND last_seen_at < now() - interval '10 minutes'",
-        )
-        .bind(&token_sha256)
-        .execute(&state.pool)
-        .await?;
 
         Ok(Session {
             account_id,

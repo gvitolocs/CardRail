@@ -27,6 +27,10 @@ pub async fn spawn() -> (String, PgPool) {
 }
 
 pub async fn spawn_with_catalog(catalog_dir: Option<PathBuf>) -> (String, PgPool) {
+    spawn_with(catalog_dir, "http://127.0.0.1:9".to_string()).await
+}
+
+pub async fn spawn_with(catalog_dir: Option<PathBuf>, cardtrader_url: String) -> (String, PgPool) {
     let url = test_database_url();
     let pool = PgPoolOptions::new()
         .max_connections(5)
@@ -49,6 +53,9 @@ pub async fn spawn_with_catalog(catalog_dir: Option<PathBuf>) -> (String, PgPool
         ],
         cookie_secure: false,
         catalog_dir,
+        secret_key: Some([9u8; 32]),
+        cardtrader_url,
+        cardtrader_sync_minutes: 0,
     });
     let router = app(AppState {
         pool: pool.clone(),

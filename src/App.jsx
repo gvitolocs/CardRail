@@ -9,13 +9,15 @@ import { Pick } from "./ui/Pick.jsx";
 import { Platforms } from "./ui/Platforms.jsx";
 import { Developer } from "./ui/Developer.jsx";
 import { Book } from "./ui/Book.jsx";
+import { Stock } from "./ui/Stock.jsx";
 import { sortPickLines } from "./engine/pickRun.js";
 
-const NAV = ["overview", "scan", "inventory", "book", "pick", "platforms", "developer"];
+const NAV = ["overview", "scan", "inventory", "stock", "book", "pick", "platforms", "developer"];
 const LABELS = {
   overview: "Dashboard",
   scan: "Scan Pokémon",
   inventory: "Inventory",
+  stock: "Live stock",
   book: "Book",
   pick: "Pick run",
   platforms: "Platforms",
@@ -25,7 +27,7 @@ export default function App() {
   const [view, setView] = useState(
     location.pathname === "/connect"
       ? "connect"
-      : ["#platforms", "#developer"].includes(location.hash)
+      : ["#platforms", "#developer", "#stock"].includes(location.hash)
         ? location.hash.slice(1)
         : location.hash.startsWith("#capture=")
           ? "scan"
@@ -356,6 +358,7 @@ export default function App() {
             onSync={() => perform(() => request("sync", {}))}
           />
         )}
+        {view === "stock" && <Stock />}
         {view === "book" && <Book rows={book} />}
         {view === "pick" && (
           <Pick

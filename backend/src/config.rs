@@ -12,6 +12,11 @@ pub struct Config {
     pub allowed_origins: Vec<String>,
     pub cookie_secure: bool,
     pub catalog_dir: Option<PathBuf>,
+    /// Encrypts marketplace tokens at rest; connections are refused without it.
+    pub secret_key: Option<[u8; 32]>,
+    pub cardtrader_url: String,
+    /// Minutes between automatic CardTrader syncs; 0 turns them off.
+    pub cardtrader_sync_minutes: u64,
 }
 
 impl Config {
@@ -35,12 +40,28 @@ impl Config {
             .filter(|path| !path.is_empty())
             .map(PathBuf::from);
 
+        let secret_key = match env::var("CARDRAILS_SECRET_KEY") {
+            Ok(raw) if !raw.trim().is_empty() => Some(crate::secrets::parse_key(&raw)?),
+            _ => None,
+        };
+        let cardtrader_url = env::var("CARDRAILS_CARDTRADER_URL")
+            .unwrap_or_else(|_| "https://api.cardtrader.com/api/v2".to_string())
+            .trim_end_matches('/')
+            .to_string();
+        let cardtrader_sync_minutes = env::var("CARDRAILS_CARDTRADER_SYNC_MINUTES")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(15);
+
         Ok(Arc::new(Config {
             database_url,
             bind,
             allowed_origins,
             cookie_secure,
             catalog_dir,
+            secret_key,
+            cardtrader_url,
+            cardtrader_sync_minutes,
         }))
     }
 

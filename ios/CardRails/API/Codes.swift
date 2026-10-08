@@ -25,6 +25,7 @@ enum Codes {
         static let altered = Flags(rawValue: 4)
         static let collection = Flags(rawValue: 8)
         static let imported = Flags(rawValue: 16)
+        static let cardtrader = Flags(rawValue: 32)
     }
 
     static func code(_ value: String, in table: [String]) -> Int? {

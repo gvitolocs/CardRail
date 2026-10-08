@@ -40,6 +40,8 @@ pub const FLAG_ALTERED: i64 = 4;
 pub const FLAG_COLLECTION: i64 = 8;
 /// Came in through `POST /v1/inventory/import`.
 pub const FLAG_IMPORTED: i64 = 16;
+/// Mirrors a CardTrader product (kept in sync by the background import).
+pub const FLAG_CARDTRADER: i64 = 32;
 
 pub fn decode<'a>(table: &[&'a str], code: &Value) -> Option<&'a str> {
     let code = code.as_u64()? as usize;
@@ -69,7 +71,8 @@ pub fn dictionary() -> &'static str {
                 "2": "signed",
                 "4": "altered",
                 "8": "collection",
-                "16": "imported"
+                "16": "imported",
+                "32": "cardtrader"
             }
         })
         .to_string()

@@ -13,7 +13,7 @@ export const CONDITIONS = ['M', 'NM', 'SP', 'MP', 'PL', 'PO']
 /** Finishes outside this list travel as plain text. */
 export const PRINTINGS = ['Standard', 'Holo', 'Reverse Holo']
 
-export const FLAGS = { firstEdition: 1, signed: 2, altered: 4, collection: 8, imported: 16 }
+export const FLAGS = { firstEdition: 1, signed: 2, altered: 4, collection: 8, imported: 16, cardtrader: 32 }
 
 export const encode = (table, value) => {
   const index = table.indexOf(value)
@@ -43,6 +43,8 @@ export function decodeCompactRow(row, boxes) {
     altered: (v.flags & FLAGS.altered) !== 0,
     purpose: (v.flags & FLAGS.collection) !== 0 ? 'collection' : 'sale',
     imported: (v.flags & FLAGS.imported) !== 0,
+    cardtrader: (v.flags & FLAGS.cardtrader) !== 0,
+    blueprintId: extras.b ?? null,
     name: extras.n ?? null,
     setName: extras.s ?? null,
     number: extras.k ?? null,

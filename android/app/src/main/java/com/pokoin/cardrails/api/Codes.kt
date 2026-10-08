@@ -25,6 +25,7 @@ object Codes {
     const val FLAG_ALTERED = 4
     const val FLAG_COLLECTION = 8
     const val FLAG_IMPORTED = 16
+    const val FLAG_CARDTRADER = 32
 
     fun code(value: String, table: List<String>): Int? = table.indexOf(value).takeIf { it >= 0 }?.plus(1)
     fun value(code: Int, table: List<String>): String? = table.getOrNull(code - 1)

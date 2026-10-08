@@ -1,10 +1,13 @@
 pub mod auth;
+pub mod cardtrader;
 pub mod catalog_lookup;
 pub mod codes;
 pub mod config;
 pub mod domain;
 pub mod error;
 pub mod inventory;
+pub mod secrets;
+pub mod stock_csv;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -54,6 +57,10 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     (
         "005_inventory_seq.sql",
         include_str!("../sql/005_inventory_seq.sql"),
+    ),
+    (
+        "006_cardtrader.sql",
+        include_str!("../sql/006_cardtrader.sql"),
     ),
 ];
 
@@ -122,9 +129,11 @@ pub fn app(state: AppState) -> Router {
         .route("/v1/dictionary", get(dictionary))
         .merge(auth::routes())
         .merge(inventory::routes())
+        .merge(stock_csv::routes())
+        .merge(cardtrader::routes())
         .merge(catalog)
         .layer(middleware::from_fn_with_state(state.clone(), guard))
-        .layer(RequestBodyLimitLayer::new(4 * 1024 * 1024))
+        .layer(RequestBodyLimitLayer::new(32 * 1024 * 1024))
         .layer(CompressionLayer::new())
         .layer(cors)
         .with_state(state)

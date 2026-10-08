@@ -30,6 +30,11 @@ hex = "0.4"
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 axum-extra = { version = "0.10", features = ["cookie"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip"] }
+aes-gcm = "0.10"
+base64 = "0.22"
+regex = "1"
+unicode-normalization = "0.1"
 
 [dev-dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "cookies"] }
