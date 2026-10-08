@@ -1,0 +1,1725 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#111111">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Card Rails">
+  <meta name="description" content="Scan your trading cards straight into your Card Rails inventory.">
+  <link rel="canonical" href="https://scan-cardrails.vercel.app/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Card Rails">
+  <meta property="og:title" content="Card Rails Scan">
+  <meta property="og:description" content="Scan your trading cards straight into your Card Rails inventory.">
+  <meta property="og:url" content="https://scan-cardrails.vercel.app/">
+  <meta property="og:image" content="https://scan-cardrails.vercel.app/static/cardrails.svg">
+  <meta name="twitter:card" content="summary">
+  <link rel="icon" href="/static/cardrails.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/cardrails.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700&display=swap" rel="stylesheet">
+  <title>Card Rails Scan</title>
+  <style>
+    @font-face {
+      font-family: "Satoshi";
+      src: url("https://cardrails.vercel.app/fonts/satoshi.woff2") format("woff2");
+      font-weight: 300 900;
+      font-style: normal;
+      font-display: swap;
+    }
+    :root {
+      --bg: #0d0d0f;
+      --panel: #111111;
+      --panel-2: #17171a;
+      --line: #2a2a2e;
+      --text: #ffffff;
+      --muted: #9a9a9f;
+      --accent: #ee1515;
+      --ok: #22c55e;
+      --cond: "Barlow Condensed", "Oswald", "Arial Narrow", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Satoshi", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      overflow: hidden;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    button { font-family: inherit; color: inherit; }
+    button, label, select { touch-action: manipulation; }
+    button:focus-visible, a:focus-visible, select:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+    [hidden] { display: none !important; }
+
+    .stage {
+      position: fixed;
+      inset: 0;
+      height: 100%;
+      height: 100dvh;
+      overflow: hidden;
+      background: #000;
+    }
+    video, img.preview {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #000;
+    }
+    #overlay {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .boot {
+      pointer-events: none;
+      position: absolute;
+      inset: 0;
+      z-index: 30;
+      background: var(--bg);
+      display: grid;
+      place-items: center;
+      transition: opacity 0.35s ease;
+    }
+    .boot.hide { opacity: 0; }
+    .boot img { width: 116px; height: 116px; animation: bootIn 0.5s ease-out forwards; }
+    @keyframes bootIn {
+      from { opacity: 0; transform: scale(0.82); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
+    .top {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 6;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: calc(8px + env(safe-area-inset-top)) 10px calc(10px + env(safe-area-inset-left));
+      background: linear-gradient(to bottom, rgba(13, 13, 15, 0.95), rgba(13, 13, 15, 0.78) 72%, rgba(13, 13, 15, 0));
+      pointer-events: none;
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      pointer-events: auto;
+    }
+    .brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .brand-logo { width: 30px; height: 30px; border-radius: 8px; flex: none; }
+    .brand-name {
+      font-family: var(--cond);
+      font-weight: 700;
+      font-size: 21px;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+    .account {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 999px;
+      min-height: 36px;
+      padding: 0 14px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .account.signed {
+      width: 36px;
+      padding: 0;
+      display: grid;
+      place-items: center;
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+      font-family: var(--cond);
+      font-size: 17px;
+    }
+
+    .chiprail {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding: 2px 2px 4px;
+      pointer-events: auto;
+      scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+    }
+    .chiprail::-webkit-scrollbar { display: none; }
+    .chip {
+      flex: none;
+      border: 1px solid var(--line);
+      background: rgba(17, 17, 17, 0.86);
+      color: var(--text);
+      border-radius: 999px;
+      min-height: 38px;
+      padding: 0 14px;
+      font-family: var(--cond);
+      font-weight: 700;
+      font-size: 16px;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .chip.small { min-height: 30px; padding: 0 12px; font-size: 14px; }
+    .chip.on {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .chip:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .status {
+      font-size: 13px;
+      color: var(--muted);
+      pointer-events: none;
+    }
+    .status span {
+      display: inline-block;
+      max-width: 100%;
+      padding: 5px 10px;
+      border-radius: 10px;
+      background: rgba(17, 17, 17, 0.86);
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+    .warming {
+      font-size: 13px;
+      color: var(--accent);
+      font-weight: 600;
+      pointer-events: none;
+      padding-left: 2px;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+    }
+
+    .bottom {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 7;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 0 calc(8px + env(safe-area-inset-left)) calc(10px + env(safe-area-inset-bottom)) calc(8px + env(safe-area-inset-right));
+      background: linear-gradient(to top, rgba(13, 13, 15, 0.9), rgba(13, 13, 15, 0));
+      padding-top: 30px;
+      pointer-events: none;
+    }
+    .bottom > * { pointer-events: auto; }
+
+    .camera-controls { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+    .camera-controls label { font-size: 13px; color: var(--text); }
+    .camera-controls select {
+      height: 40px;
+      width: min(240px, 62vw);
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel);
+      color: var(--text);
+      padding: 0 10px;
+      font-size: 15px;
+    }
+    .start-camera {
+      align-self: center;
+      min-width: 200px;
+      height: 52px;
+      border-radius: 26px;
+      border: 0;
+      background: var(--accent);
+      color: #fff;
+      font-family: var(--cond);
+      font-weight: 700;
+      font-size: 18px;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+    .controls { display: flex; align-items: center; gap: 8px; }
+    .seg {
+      display: inline-flex;
+      border-radius: 12px;
+      overflow: hidden;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      flex: 1;
+      min-width: 0;
+    }
+    .seg button {
+      flex: 1;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      min-height: 46px;
+      padding: 10px 8px;
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .seg button.on { background: rgba(238, 21, 21, 0.2); color: var(--accent); }
+    .icon {
+      width: 46px;
+      height: 46px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--text);
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      flex: 0 0 auto;
+      font-size: 19px;
+    }
+    .icon.on { color: var(--accent); border-color: var(--accent); }
+    .icon:disabled { opacity: 0.45; cursor: not-allowed; }
+    #file { display: none; }
+
+    .tray { display: flex; flex-direction: column; gap: 8px; }
+    .tray-rows {
+      display: none;
+      flex-direction: column;
+      gap: 6px;
+      max-height: min(42dvh, 340px);
+      overflow-y: auto;
+      border-radius: 14px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      padding: 8px;
+    }
+    .tray.open .tray-rows { display: flex; }
+    .tray-row {
+      display: grid;
+      grid-template-columns: 42px minmax(0, 1fr) auto;
+      grid-template-areas:
+        "art info stepper"
+        "art meta meta";
+      gap: 4px 8px;
+      align-items: center;
+      padding: 6px 4px;
+      border-bottom: 1px solid var(--line);
+    }
+    .tray-row:last-child { border-bottom: 0; }
+    .tray-art { grid-area: art; width: 42px; height: 58px; border-radius: 6px; object-fit: cover; background: var(--panel-2); }
+    .tray-art.ph { background: var(--panel-2); }
+    .tray-info { grid-area: info; min-width: 0; }
+    .tray-name { font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tray-sub { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .stepper { grid-area: stepper; display: flex; align-items: center; gap: 2px; }
+    .stepper button {
+      width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--panel-2); color: var(--text); font-size: 17px; cursor: pointer;
+    }
+    .stepper .qty { min-width: 22px; text-align: center; font-variant-numeric: tabular-nums; font-weight: 700; }
+    .tray-meta { grid-area: meta; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    .tray-meta select {
+      height: 32px; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--panel-2); color: var(--text); font-size: 13px; padding: 0 6px;
+    }
+    .tray-remove {
+      margin-left: auto;
+      width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--line);
+      background: transparent; color: var(--muted); font-size: 18px; cursor: pointer;
+    }
+    .tray-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 14px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      padding: 8px;
+    }
+    .tray-head {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      border: 0;
+      background: transparent;
+      min-height: 44px;
+      padding: 0 6px;
+      font-family: var(--cond);
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      cursor: pointer;
+    }
+    .tray-head .chev { color: var(--muted); font-size: 13px; transition: transform 0.15s ease; }
+    .tray.open .tray-head .chev { transform: rotate(180deg); }
+    .accent {
+      border: 0;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 12px;
+      min-height: 44px;
+      padding: 0 16px;
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .accent:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .toast {
+      position: absolute;
+      left: 50%;
+      bottom: calc(96px + env(safe-area-inset-bottom));
+      transform: translateX(-50%);
+      z-index: 40;
+      max-width: min(92vw, 420px);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      font-size: 14px;
+      pointer-events: auto;
+    }
+    .toast a { color: var(--accent); font-weight: 700; text-decoration: underline; }
+
+    .sheet {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.6);
+      padding: 16px;
+    }
+    .sheet-card {
+      width: 100%;
+      max-width: 420px;
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 18px;
+      padding-bottom: calc(18px + env(safe-area-inset-bottom));
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .sheet-card h2 {
+      margin: 0;
+      font-family: var(--cond);
+      font-size: 24px;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+    .sheet-card p { margin: 0; color: var(--muted); font-size: 14px; }
+    .sheet-card form { display: flex; flex-direction: column; gap: 12px; }
+    .sheet-card label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
+    .sheet-card input {
+      height: 46px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--text);
+      padding: 0 12px;
+      font-size: 16px;
+      font-family: inherit;
+    }
+    .sheet-error { color: var(--accent) !important; font-size: 13px; }
+    .link {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      text-decoration: underline;
+      font: inherit;
+      font-size: 14px;
+      cursor: pointer;
+      min-height: 36px;
+    }
+    .account-email { font-weight: 700; color: var(--text); word-break: break-all; }
+
+    @media (max-height: 520px) and (orientation: landscape) {
+      .brand-name { font-size: 18px; }
+      .chip { min-height: 34px; font-size: 15px; }
+      .tray-rows { max-height: 26dvh; }
+    }
+  </style>
+</head>
+<body>
+  <div class="stage">
+    <video id="live" playsinline autoplay muted></video>
+    <img class="preview" id="shot" alt="" hidden>
+    <canvas id="overlay"></canvas>
+
+    <div class="boot" id="boot" aria-hidden="true">
+      <img src="/static/cardrails.svg" alt="Card Rails">
+    </div>
+
+    <div class="top">
+      <header class="topbar">
+        <div class="brand">
+          <img class="brand-logo" src="/static/cardrails.svg" alt="">
+          <span class="brand-name">Card Rails</span>
+        </div>
+        <button type="button" class="account" id="accountBtn">Accedi</button>
+      </header>
+      <nav class="chiprail" id="gameRail" aria-label="Gioco"></nav>
+      <nav class="chiprail" id="langRail" aria-label="Lingua" hidden></nav>
+      <div class="status" role="status"><span id="catalogStatusText">Caricamento cataloghi…</span></div>
+      <div class="warming" id="warming" hidden></div>
+    </div>
+
+    <div class="bottom">
+      <div class="camera-controls" id="cameraControls" hidden>
+        <label for="cameraSelect">Fotocamera</label>
+        <select id="cameraSelect" aria-label="Fotocamera"></select>
+      </div>
+      <button type="button" class="start-camera" id="startCameraTap" hidden>Avvia fotocamera</button>
+      <div class="controls">
+        <div class="seg" role="group" aria-label="Modalità">
+          <button type="button" id="modeSingle" class="on">Singola</button>
+          <button type="button" id="modeMulti">Multipla</button>
+        </div>
+        <button type="button" class="icon" id="torch" disabled title="Torcia" aria-label="Torcia">⚡</button>
+        <button type="button" class="icon" id="gallery" title="Galleria" aria-label="Galleria">🖼</button>
+        <button type="button" class="icon" id="resumeCamera" title="Riprendi fotocamera" aria-label="Riprendi fotocamera" hidden>↻</button>
+        <input id="file" type="file" accept="image/*">
+      </div>
+      <div class="tray" id="tray" hidden>
+        <div class="tray-rows" id="trayRows"></div>
+        <div class="tray-bar">
+          <button type="button" class="tray-head" id="trayHead" aria-expanded="false">
+            <span id="trayCount">0 carte</span>
+            <span class="chev" aria-hidden="true">▼</span>
+          </button>
+          <button type="button" class="accent" id="addInventory">Aggiungi all'inventario</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast" hidden></div>
+
+    <div class="sheet" id="signinSheet" hidden>
+      <div class="sheet-card">
+        <h2 id="signinTitle">Accedi</h2>
+        <p>Accedi per aggiungere le carte al tuo inventario Card Rails.</p>
+        <form id="signinForm">
+          <label>Email
+            <input type="email" id="signinEmail" autocomplete="email" required>
+          </label>
+          <label>Password
+            <input type="password" id="signinPassword" autocomplete="current-password" minlength="8" required>
+          </label>
+          <p class="sheet-error" id="signinError" hidden></p>
+          <button type="submit" class="accent" id="signinSubmit">Accedi</button>
+        </form>
+        <button type="button" class="link" id="signinToggle">Non hai un account? Registrati</button>
+        <button type="button" class="link" id="signinClose">Chiudi</button>
+      </div>
+    </div>
+
+    <div class="sheet" id="accountSheet" hidden>
+      <div class="sheet-card">
+        <h2>Account</h2>
+        <p>Hai effettuato l'accesso come</p>
+        <p class="account-email" id="accountEmail"></p>
+        <button type="button" class="accent" id="signoutBtn">Esci</button>
+        <button type="button" class="link" id="accountClose">Chiudi</button>
+      </div>
+    </div>
+
+    <div class="sheet" id="locationSheet" hidden>
+      <div class="sheet-card">
+        <h2>Posizione</h2>
+        <p>Imposta dove riporre le carte prima di aggiungerle.</p>
+        <form id="locationForm">
+          <label>Box/etichetta
+            <input type="text" id="locLabel" maxlength="64" required>
+          </label>
+          <label>Carte per pila
+            <input type="number" id="locStack" min="1" max="10000" step="1" value="100" required>
+          </label>
+          <p class="sheet-error" id="locError" hidden></p>
+          <button type="submit" class="accent" id="locSubmit">Salva</button>
+        </form>
+        <button type="button" class="link" id="locCancel">Annulla</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    "use strict";
+
+    var SCAN_API = "https://api.pokoin.com/api/scan";
+    var ACCOUNT_API = "https://cardrails-api.pokoin.com";
+    var LIVE_MS = 280;
+    var ACCEPT = 0.72;
+    var RELATCH_MS = 1000;
+    var GALLERY_MAX = 448;
+    var GALLERY_QUALITY = 0.9;
+    var LIVE_MAX = 960;
+    var LANGUAGES = ["EN", "IT", "JP", "ZH", "DE", "FR", "ES", "PT", "KO"];
+    var CONDITIONS = ["NM", "SP", "MP", "PL", "PO"];
+    var FINISHES = ["Standard", "Holo", "Reverse Holo"];
+    var GAME_ORDER = ["pokemon", "magic", "yugioh", "one_piece", "lorcana", "riftbound",
+      "vanguard", "flesh_and_blood", "dragon_ball_super", "digimon", "star_wars",
+      "union_arena", "gundam", "sorcery", "palworld", "cyberpunk"];
+    var GAME_LABELS = {
+      pokemon: "Pokémon", magic: "Magic", yugioh: "Yu-Gi-Oh!", one_piece: "One Piece",
+      lorcana: "Lorcana", riftbound: "Riftbound", vanguard: "Vanguard",
+      flesh_and_blood: "Flesh and Blood", dragon_ball_super: "Dragon Ball",
+      digimon: "Digimon", star_wars: "Star Wars", union_arena: "Union Arena",
+      gundam: "Gundam", sorcery: "Sorcery", palworld: "Palworld", cyberpunk: "Cyberpunk"
+    };
+    var PKMN_ASPECT = 63 / 88;
+
+    var live = document.getElementById("live");
+    var shot = document.getElementById("shot");
+    var overlay = document.getElementById("overlay");
+    var boot = document.getElementById("boot");
+    var warming = document.getElementById("warming");
+    var gameRail = document.getElementById("gameRail");
+    var langRail = document.getElementById("langRail");
+    var statusText = document.getElementById("catalogStatusText");
+    var torchBtn = document.getElementById("torch");
+    var modeSingle = document.getElementById("modeSingle");
+    var modeMulti = document.getElementById("modeMulti");
+    var galleryBtn = document.getElementById("gallery");
+    var fileInput = document.getElementById("file");
+    var resumeCamera = document.getElementById("resumeCamera");
+    var startCameraTap = document.getElementById("startCameraTap");
+    var cameraSelect = document.getElementById("cameraSelect");
+    var cameraControls = document.getElementById("cameraControls");
+    var trayEl = document.getElementById("tray");
+    var trayRows = document.getElementById("trayRows");
+    var trayCount = document.getElementById("trayCount");
+    var trayHead = document.getElementById("trayHead");
+    var addInventoryBtn = document.getElementById("addInventory");
+    var toastEl = document.getElementById("toast");
+    var accountBtn = document.getElementById("accountBtn");
+    var signinSheet = document.getElementById("signinSheet");
+    var accountSheet = document.getElementById("accountSheet");
+    var locationSheet = document.getElementById("locationSheet");
+
+    var availableCatalogs = null;
+    var catalogById = new Map();
+    var game = "pokemon";
+    var language = "EN";
+    var mode = "single";
+
+    var stream = null;
+    var track = null;
+    var busy = false;
+    var liveTimer = null;
+    var torchOn = false;
+    var pulse = 0;
+    var pulseRaf = 0;
+    var lastBoxes = null;
+    var lastImgW = 0;
+    var lastImgH = 0;
+    var camReady = false;
+    var cameraViewVersion = 0;
+    var cameraRequestVersion = 0;
+    var scanRevision = 0;
+    var requestController = null;
+    var gallerySource = null;
+    var galleryObjectUrl = null;
+    var flashUntil = 0;
+    var activeCards = new Map();
+
+    var tray = [];
+    var batchKey = null;
+    var token = null;
+    var account = null;
+    var pendingAdd = false;
+    var toastTimer = null;
+    var gameButtons = {};
+    var langButtons = [];
+
+    var gameRailEl = gameRail;
+    var langRailEl = langRail;
+
+    var LS_TOKEN = "cardrails_token";
+    var LS_TRAY = "cardrails_scan_tray";
+    var LS_SELECTION = "cardrails_scan_selection";
+
+    function lsGet(key) { try { return localStorage.getItem(key); } catch (_) { return null; } }
+    function lsSet(key, value) {
+      try { if (value == null) localStorage.removeItem(key); else localStorage.setItem(key, value); } catch (_) {}
+    }
+    function lsJson(key) {
+      var raw = lsGet(key);
+      if (!raw) return null;
+      try { return JSON.parse(raw); } catch (_) { return null; }
+    }
+
+    function catEntriesFor(g) {
+      if (!catalogById || !catalogById.size) return [];
+      if (g === "pokemon") {
+        return [["EN", "pokemon_western"], ["JP", "pokemon_japanese"], ["ZH", "pokemon_chinese"]]
+          .filter(function (e) { return catalogById.has(e[1]); });
+      }
+      if (g === "one_piece") {
+        return [["EN", "one_piece_english"], ["JP", "one_piece_japanese"]]
+          .filter(function (e) { return catalogById.has(e[1]); });
+      }
+      if (g === "riftbound") {
+        return catalogById.has("riftbound_western") ? [["ALL", "riftbound_western"]] : [];
+      }
+      var id = g + "_all";
+      return catalogById.has(id) ? [["ALL", id]] : [];
+    }
+
+    function currentCatalogId() {
+      var entries = catEntriesFor(game);
+      for (var i = 0; i < entries.length; i += 1) {
+        if (entries[i][0] === language) return entries[i][1];
+      }
+      return entries.length ? entries[0][1] : "";
+    }
+
+    function defaultTrayLanguage() {
+      if (catEntriesFor(game).length > 1 && LANGUAGES.indexOf(language) !== -1) return language;
+      return "EN";
+    }
+
+    function formatCount(n) {
+      try { return new Intl.NumberFormat("it-IT").format(n); } catch (_) { return String(n); }
+    }
+
+    function updateStatus() {
+      var id = currentCatalogId();
+      var entry = catalogById.get(id);
+      var parts = [GAME_LABELS[game] || game];
+      if (catEntriesFor(game).length > 1) parts.push(language);
+      if (entry && typeof entry.count === "number") parts.push(formatCount(entry.count) + " carte");
+      statusText.textContent = parts.join(" · ");
+    }
+
+    function renderGameRail() {
+      gameRailEl.replaceChildren();
+      gameButtons = {};
+      for (var i = 0; i < GAME_ORDER.length; i += 1) {
+        var g = GAME_ORDER[i];
+        if (!catEntriesFor(g).length) continue;
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "chip";
+        b.textContent = GAME_LABELS[g] || g;
+        b.setAttribute("data-game", g);
+        (function (gg) { b.addEventListener("click", function () { selectGame(gg); }); })(g);
+        gameRailEl.append(b);
+        gameButtons[g] = b;
+      }
+    }
+
+    function renderLangRail() {
+      langRailEl.replaceChildren();
+      langButtons = [];
+      var entries = catEntriesFor(game);
+      langRailEl.hidden = entries.length <= 1;
+      entries.forEach(function (entry) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "chip small";
+        b.textContent = entry[0];
+        b.addEventListener("click", function () { selectLanguage(entry[0]); });
+        langRailEl.append(b);
+        langButtons.push({ label: entry[0], el: b });
+      });
+    }
+
+    function updateRailsActive() {
+      Object.keys(gameButtons).forEach(function (g) {
+        gameButtons[g].classList.toggle("on", g === game);
+      });
+      langButtons.forEach(function (item) {
+        item.el.classList.toggle("on", item.label === language);
+      });
+    }
+
+    function saveSelection() {
+      lsSet(LS_SELECTION, JSON.stringify({ game: game, language: language }));
+    }
+
+    function applySelection() {
+      if (!catalogById.has(currentCatalogId())) {
+        var games = GAME_ORDER.filter(function (g) { return catEntriesFor(g).length; });
+        if (games.length) {
+          if (!catEntriesFor(game).length) game = games[0];
+          var entries = catEntriesFor(game);
+          if (!entries.some(function (e) { return e[0] === language; })) language = entries[0][0];
+        }
+      }
+      invalidateScan();
+      renderLangRail();
+      updateRailsActive();
+      updateStatus();
+      saveSelection();
+      warming.hidden = camReady || !!gallerySource;
+      if (gallerySource) scanGallery();
+      else { stopLive(); scheduleLive(100); }
+    }
+
+    function selectGame(next) {
+      if (!catEntriesFor(next).length) return;
+      game = next;
+      var entries = catEntriesFor(game);
+      language = entries[0][0];
+      applySelection();
+    }
+
+    function selectLanguage(next) {
+      if (!catEntriesFor(game).some(function (e) { return e[0] === next; })) return;
+      language = next;
+      applySelection();
+    }
+
+    async function loadCatalogs() {
+      try {
+        var res = await fetch(SCAN_API + "/catalogs", { signal: AbortSignal.timeout(10000) });
+        if (!res.ok) throw new Error("catalogs unavailable");
+        var data = await res.json();
+        availableCatalogs = Array.isArray(data.catalogs) ? data.catalogs : [];
+        catalogById = new Map();
+        availableCatalogs.forEach(function (c) { if (c && c.id) catalogById.set(c.id, c); });
+
+        var games = GAME_ORDER.filter(function (g) { return catEntriesFor(g).length; });
+        if (games.length) {
+          var saved = lsJson(LS_SELECTION);
+          if (saved && games.indexOf(saved.game) !== -1 &&
+              catEntriesFor(saved.game).some(function (e) { return e[0] === saved.language; })) {
+            game = saved.game; language = saved.language;
+          } else {
+            if (games.indexOf(game) === -1) game = games[0];
+            var entries = catEntriesFor(game);
+            if (entries.length && !entries.some(function (e) { return e[0] === language; })) {
+              language = entries[0][0];
+            }
+          }
+        }
+        renderGameRail();
+        renderLangRail();
+        updateRailsActive();
+        updateStatus();
+        if (!catalogById.has(currentCatalogId())) {
+          warming.textContent = "Catalogo non disponibile. Scegli un altro gioco o lingua.";
+          warming.hidden = false;
+        }
+      } catch (_) {
+        warming.textContent = "Servizio cataloghi non disponibile. Riprova tra poco.";
+        warming.hidden = false;
+      }
+    }
+
+    function identifyEndpoint(isLive) {
+      var url = new URL(SCAN_API + "/identify");
+      url.searchParams.set("catalog", currentCatalogId());
+      url.searchParams.set("multi", mode === "multi" ? "1" : "0");
+      if (isLive) {
+        url.searchParams.set("live", "1");
+        url.searchParams.set("top_k", mode === "multi" ? "8" : "3");
+      } else {
+        url.searchParams.set("top_k", mode === "multi" ? "8" : "5");
+      }
+      return url.toString();
+    }
+
+    function invalidateScan() {
+      scanRevision += 1;
+      if (requestController) requestController.abort();
+      drawBoxes(null, 0, 0);
+    }
+
+    function scheduleLive(delayMs) {
+      if (!stream) return;
+      if (liveTimer !== null) clearTimeout(liveTimer);
+      liveTimer = setTimeout(tick, Math.max(80, delayMs == null ? LIVE_MS : delayMs));
+    }
+
+    function stopLive() {
+      if (liveTimer !== null) clearTimeout(liveTimer);
+      liveTimer = null;
+    }
+
+    function blobFromCanvas(source, max, quality) {
+      var canvas = document.createElement("canvas");
+      var w = source.videoWidth || source.naturalWidth || source.width;
+      var h = source.videoHeight || source.naturalHeight || source.height;
+      if (!w || !h) return Promise.resolve(null);
+      var scale = Math.min(1, max / Math.max(w, h));
+      canvas.width = Math.max(1, Math.round(w * scale));
+      canvas.height = Math.max(1, Math.round(h * scale));
+      canvas.getContext("2d", { alpha: false }).drawImage(source, 0, 0, w, h, 0, 0, canvas.width, canvas.height);
+      var q = Math.min(0.92, Math.max(0.4, Number(quality) || 0.72));
+      return new Promise(function (resolve) { canvas.toBlob(resolve, "image/jpeg", q); });
+    }
+
+    function mapContain(xy, imgW, imgH, viewW, viewH) {
+      var scale = Math.min(viewW / imgW, viewH / imgH);
+      var dx = (viewW - imgW * scale) / 2;
+      var dy = (viewH - imgH * scale) / 2;
+      return {
+        x: xy[0] * scale + dx,
+        y: xy[1] * scale + dy,
+        w: (xy[2] - xy[0]) * scale,
+        h: (xy[3] - xy[1]) * scale
+      };
+    }
+
+    function fitCardRect(r, aspect) {
+      var cx = r.x + r.w / 2;
+      var cy = r.y + r.h / 2;
+      var wFromH = r.h * aspect;
+      var hFromW = r.w / aspect;
+      var w, h;
+      if (wFromH >= r.w) { w = wFromH; h = r.h; } else { w = r.w; h = hFromW; }
+      return { x: cx - w / 2, y: cy - h / 2, w: w, h: h };
+    }
+
+    function drawBoxes(boxes, imgW, imgH) {
+      lastBoxes = boxes || null;
+      lastImgW = imgW || 0;
+      lastImgH = imgH || 0;
+      paintOverlay();
+    }
+
+    function paintOverlay() {
+      var ctx = overlay.getContext("2d");
+      var dpr = window.devicePixelRatio || 1;
+      overlay.width = overlay.clientWidth * dpr;
+      overlay.height = overlay.clientHeight * dpr;
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
+      if (!lastBoxes || !lastBoxes.length || !lastImgW || !lastImgH) return;
+      var flashing = performance.now() < flashUntil;
+      if (flashing) {
+        ctx.strokeStyle = "rgba(34,197,94,0.95)";
+      } else {
+        var alpha = 0.55 + 0.4 * (0.5 + 0.5 * Math.sin(pulse * Math.PI * 2));
+        ctx.strokeStyle = "rgba(238,21,21," + alpha.toFixed(3) + ")";
+      }
+      ctx.lineWidth = 3 * dpr;
+      var limit = mode === "multi" ? Math.min(lastBoxes.length, 16) : 1;
+      var snap = game === "pokemon";
+      for (var i = 0; i < limit; i += 1) {
+        var xy = lastBoxes[i].xyxy || [];
+        if (xy.length < 4) continue;
+        var r = mapContain(xy, lastImgW, lastImgH, overlay.width, overlay.height);
+        if (snap) r = fitCardRect(r, PKMN_ASPECT);
+        ctx.strokeRect(r.x, r.y, r.w, r.h);
+      }
+    }
+
+    function startPulse() {
+      var t0 = performance.now();
+      function frame(now) {
+        pulse = ((now - t0) % 700) / 700;
+        paintOverlay();
+        pulseRaf = requestAnimationFrame(frame);
+      }
+      pulseRaf = requestAnimationFrame(frame);
+    }
+
+    function setMode(next) {
+      mode = next;
+      invalidateScan();
+      modeSingle.classList.toggle("on", mode === "single");
+      modeMulti.classList.toggle("on", mode === "multi");
+      paintOverlay();
+      if (gallerySource) scanGallery();
+      else { stopLive(); scheduleLive(100); }
+    }
+
+    function cameraConstraints() {
+      return {
+        width: { ideal: 1280 },
+        height: { ideal: 960 },
+        aspectRatio: { ideal: 4 / 3 },
+        resizeMode: { ideal: "none" }
+      };
+    }
+
+    function invalidateCameraView() {
+      cameraViewVersion += 1;
+      if (!live.hidden) drawBoxes(null, 0, 0);
+    }
+
+    function cameraViewChanged() {
+      paintOverlay();
+    }
+
+    function preferredCamera(devices, currentId) {
+      var cameras = devices.filter(function (d) { return d.kind === "videoinput"; });
+      var ranked = cameras.map(function (device) {
+        var label = (device.label || "").toLowerCase();
+        var rear = /back|rear|environment|bagkamera|bagside|ruck|rück|arriere|arrière|posteriore|trasera/.test(label);
+        var wide = /wide|vidvinkel|weitwinkel|grand.angle|grandangol/.test(label);
+        var avoid = /ultra|\btele(?:photo|foto|obiettivo)?\b|front|user|facetime|selfie/.test(label);
+        var combined = /dual|triple|fusion|virtual/.test(label);
+        return { device: device, score: (rear ? 200 : 0) + (wide ? 50 : 0) - (avoid ? 1000 : 0) - (combined ? 400 : 0) };
+      }).filter(function (item) { return item.score > 0; }).sort(function (a, b) { return b.score - a.score; });
+      return (ranked[0] && ranked[0].device) ||
+        cameras.find(function (d) { return d.deviceId === currentId; }) || cameras[0];
+    }
+
+    async function configureNormalCamera(activeTrack) {
+      var caps = activeTrack.getCapabilities ? activeTrack.getCapabilities() : {};
+      var settings = {};
+      if (caps.zoom && Number.isFinite(caps.zoom.min) && Number.isFinite(caps.zoom.max)) {
+        settings.zoom = Math.max(caps.zoom.min, Math.min(1, caps.zoom.max));
+      }
+      if (caps.focusMode && caps.focusMode.includes("continuous")) settings.focusMode = "continuous";
+      if (Object.keys(settings).length) {
+        try {
+          await activeTrack.applyConstraints(Object.assign({}, cameraConstraints(), { advanced: [settings] }));
+        } catch (_) {}
+      }
+    }
+
+    function populateCameras(devices, selectedId) {
+      cameraSelect.replaceChildren();
+      var cameras = devices.filter(function (d) { return d.kind === "videoinput"; });
+      cameras.forEach(function (device, index) {
+        var option = document.createElement("option");
+        option.value = device.deviceId;
+        option.textContent = device.label || "Fotocamera " + (index + 1);
+        option.selected = device.deviceId === selectedId;
+        cameraSelect.append(option);
+      });
+      cameraControls.hidden = cameras.length < 2;
+    }
+
+    async function startCameraRaw(deviceId) {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        warming.textContent = "Fotocamera non disponibile — usa la galleria.";
+        warming.hidden = false;
+        return;
+      }
+      var requestVersion = ++cameraRequestVersion;
+      invalidateScan();
+      invalidateCameraView();
+      stopLive();
+      camReady = false;
+      if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
+      stream = null;
+      track = null;
+      torchOn = false;
+      torchBtn.classList.remove("on");
+      torchBtn.disabled = true;
+      warming.textContent = "Apertura fotocamera…";
+      warming.hidden = false;
+      var nextStream = null;
+      try {
+        var constraints = function (id) {
+          return { audio: false, video: Object.assign({}, cameraConstraints(), id ? { deviceId: { exact: id } } : { facingMode: { ideal: "environment" } }) };
+        };
+        nextStream = await navigator.mediaDevices.getUserMedia(constraints(deviceId));
+        if (requestVersion !== cameraRequestVersion) { nextStream.getTracks().forEach(function (t) { t.stop(); }); return; }
+        var active = nextStream.getVideoTracks()[0];
+        var devices = [];
+        try { devices = await navigator.mediaDevices.enumerateDevices(); } catch (_) {}
+        if (requestVersion !== cameraRequestVersion) { nextStream.getTracks().forEach(function (t) { t.stop(); }); return; }
+        var currentId = active.getSettings ? active.getSettings().deviceId : "";
+        var preferred = deviceId ? null : preferredCamera(devices, currentId);
+        if (preferred && preferred.deviceId && preferred.deviceId !== currentId) {
+          nextStream.getTracks().forEach(function (t) { t.stop(); });
+          try { nextStream = await navigator.mediaDevices.getUserMedia(constraints(preferred.deviceId)); }
+          catch (_) { nextStream = await navigator.mediaDevices.getUserMedia(constraints(currentId)); }
+          active = nextStream.getVideoTracks()[0];
+        }
+        if (requestVersion !== cameraRequestVersion) { nextStream.getTracks().forEach(function (t) { t.stop(); }); return; }
+        await configureNormalCamera(active);
+        if (requestVersion !== cameraRequestVersion) { nextStream.getTracks().forEach(function (t) { t.stop(); }); return; }
+        stream = nextStream;
+        track = active;
+        live.srcObject = stream;
+        if (galleryObjectUrl) URL.revokeObjectURL(galleryObjectUrl);
+        gallerySource = null;
+        galleryObjectUrl = null;
+        shot.removeAttribute("src");
+        live.hidden = false;
+        shot.hidden = true;
+        cameraViewChanged();
+        camReady = true;
+        startCameraTap.hidden = true;
+        populateCameras(devices, active.getSettings ? active.getSettings().deviceId : "");
+        var caps = track.getCapabilities ? track.getCapabilities() : {};
+        torchBtn.disabled = !caps.torch;
+        resumeCamera.hidden = true;
+        warming.textContent = "Inquadra una carta. Tieni visibili tutti e quattro gli angoli.";
+        warming.hidden = false;
+        scheduleLive(LIVE_MS);
+      } catch (error) {
+        if (nextStream) nextStream.getTracks().forEach(function (t) { t.stop(); });
+        if (requestVersion !== cameraRequestVersion) return;
+        resumeCamera.hidden = false;
+        warming.textContent = (error && error.name === "NotAllowedError")
+          ? "Fotocamera bloccata — consentila nelle impostazioni del sito, poi riprova."
+          : "Fotocamera non disponibile — usa la galleria o riprova.";
+        warming.hidden = false;
+      }
+    }
+
+    function startCameraGated() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        warming.textContent = "Apri questa pagina in Chrome per scansionare.";
+        warming.hidden = false;
+        return;
+      }
+      var gateSettled = false;
+      var gateTimer = null;
+      var settle = function (ok) {
+        if (gateSettled) return;
+        gateSettled = true;
+        if (gateTimer) clearTimeout(gateTimer);
+        if (ok) { startCameraRaw(); return; }
+        warming.textContent = "Tocca per avviare la fotocamera.";
+        warming.hidden = false;
+        startCameraTap.hidden = false;
+      };
+      gateTimer = setTimeout(function () { settle(false); }, 400);
+      if (navigator.permissions && navigator.permissions.query) {
+        navigator.permissions.query({ name: "camera" })
+          .then(function (s) { settle(s.state === "granted"); })
+          .catch(function () { settle(false); });
+      } else {
+        settle(false);
+      }
+    }
+
+    async function toggleTorch() {
+      if (!track) return;
+      var caps = track.getCapabilities && track.getCapabilities();
+      if (!caps || !caps.torch) return;
+      torchOn = !torchOn;
+      try {
+        await track.applyConstraints(Object.assign({},
+          track.getConstraints ? track.getConstraints() : cameraConstraints(),
+          { advanced: [{ torch: torchOn }] }));
+        torchBtn.classList.toggle("on", torchOn);
+      } catch (_) {
+        torchOn = false;
+        torchBtn.classList.remove("on");
+      }
+    }
+
+    async function identify(blob, opts) {
+      var livePass = !!(opts && opts.live);
+      var revision = scanRevision;
+      var selectedCatalog = currentCatalogId();
+      var controller = new AbortController();
+      if (requestController) requestController.abort();
+      requestController = controller;
+      var timeout = setTimeout(function () { controller.abort(); }, 20000);
+      var body = new FormData();
+      body.append("file", blob, "card.jpg");
+      var data;
+      try {
+        var res = await fetch(identifyEndpoint(livePass), { method: "POST", body: body, signal: controller.signal });
+        data = await res.json();
+        if (revision !== scanRevision || (livePass && (opts.viewVersion !== cameraViewVersion || live.hidden))) return null;
+        if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Richiesta di scansione non riuscita.");
+        if (data.catalog !== selectedCatalog) throw new Error("Risposta catalogo inattesa.");
+        if (data.busy) {
+          warming.textContent = "Scanner occupato — nuovo tentativo…";
+          warming.hidden = false;
+          return data;
+        }
+        warming.hidden = true;
+      } catch (err) {
+        if (revision === scanRevision) {
+          warming.textContent = err.name === "AbortError"
+            ? "Scansione scaduta. Riprova."
+            : "Scansione non disponibile. Riprova.";
+          warming.hidden = false;
+        }
+        return null;
+      } finally {
+        clearTimeout(timeout);
+        if (requestController === controller) requestController = null;
+      }
+      drawBoxes(data.boxes, data.img_w, data.img_h);
+      return data;
+    }
+
+    function cardKey(hit) {
+      return String(hit.public_id || hit.id || "") + "|" + String(hit.name || "");
+    }
+
+    function hitCount(hit) { return Number(hit && hit.score) || 0; }
+
+    function considerAdd(hit, force) {
+      if (!hit || hitCount(hit) < ACCEPT) return false;
+      var key = cardKey(hit);
+      var now = Date.now();
+      var last = activeCards.get(key) || 0;
+      if (!force && now - last < RELATCH_MS) {
+        activeCards.set(key, now);
+        return false;
+      }
+      activeCards.set(key, now);
+      addToTray(hit);
+      flashUntil = now + 500;
+      if (navigator.vibrate) { try { navigator.vibrate(30); } catch (_) {} }
+      return true;
+    }
+
+    function addToTray(hit) {
+      mergeRow({
+        game: game,
+        name: hit.name || "",
+        set: hit.set || "",
+        number: String(hit.collector_number || ""),
+        publicId: String(hit.public_id || hit.id || ""),
+        ctId: String(hit.ct_id || ""),
+        art: hit.image_url || "",
+        language: defaultTrayLanguage(),
+        condition: "NM",
+        printing: "Standard"
+      }, 1);
+    }
+
+    function trayRowKey(base) {
+      return [base.game, base.publicId, base.language, base.condition, base.printing].join("|");
+    }
+
+    function mergeRow(base, qty) {
+      var key = trayRowKey(base);
+      var existing = null;
+      for (var i = 0; i < tray.length; i += 1) { if (tray[i].key === key) { existing = tray[i]; break; } }
+      if (existing) existing.quantity += qty;
+      else tray.unshift(Object.assign({ key: key, quantity: qty }, base));
+      batchKey = null;
+      saveTray();
+      updateTray();
+    }
+
+    function saveTray() { lsSet(LS_TRAY, JSON.stringify(tray)); }
+
+    function loadTray() {
+      var saved = lsJson(LS_TRAY);
+      if (!Array.isArray(saved)) return;
+      tray = saved.filter(function (r) {
+        return r && typeof r.name === "string" && typeof r.quantity === "number" && r.quantity > 0;
+      }).map(function (r) {
+        return {
+          key: r.key || trayRowKey(r),
+          game: r.game || "pokemon",
+          name: r.name || "",
+          set: r.set || "",
+          number: r.number || "",
+          publicId: r.publicId || "",
+          ctId: r.ctId || "",
+          art: r.art || "",
+          language: LANGUAGES.indexOf(r.language) !== -1 ? r.language : "EN",
+          condition: CONDITIONS.indexOf(r.condition) !== -1 ? r.condition : "NM",
+          printing: FINISHES.indexOf(r.printing) !== -1 ? r.printing : "Standard",
+          quantity: Math.max(1, Math.min(10000, Math.round(r.quantity)))
+        };
+      });
+    }
+
+    function trayTotal() {
+      return tray.reduce(function (sum, r) { return sum + r.quantity; }, 0);
+    }
+
+    function makeSelect(options, value, onChange) {
+      var sel = document.createElement("select");
+      options.forEach(function (opt) {
+        var o = document.createElement("option");
+        o.value = opt;
+        o.textContent = opt;
+        sel.append(o);
+      });
+      sel.value = options.indexOf(value) !== -1 ? value : options[0];
+      sel.addEventListener("change", function () { onChange(sel.value); });
+      return sel;
+    }
+
+    function renderTrayRows() {
+      trayRows.replaceChildren();
+      tray.forEach(function (r) {
+        var row = document.createElement("div");
+        row.className = "tray-row";
+
+        if (r.art) {
+          var img = document.createElement("img");
+          img.className = "tray-art";
+          img.src = r.art;
+          img.alt = "";
+          img.loading = "lazy";
+          img.addEventListener("error", function () { img.style.visibility = "hidden"; });
+          row.append(img);
+        } else {
+          var ph = document.createElement("div");
+          ph.className = "tray-art ph";
+          row.append(ph);
+        }
+
+        var info = document.createElement("div");
+        info.className = "tray-info";
+        var name = document.createElement("div");
+        name.className = "tray-name";
+        name.textContent = r.name || "Carta";
+        var sub = document.createElement("div");
+        sub.className = "tray-sub";
+        sub.textContent = [r.set, r.number].filter(Boolean).join(" · ");
+        info.append(name, sub);
+
+        var step = document.createElement("div");
+        step.className = "stepper";
+        var minus = document.createElement("button");
+        minus.type = "button";
+        minus.textContent = "−";
+        minus.setAttribute("aria-label", "Riduci quantità");
+        minus.addEventListener("click", function () {
+          r.quantity = Math.max(1, r.quantity - 1);
+          trayChanged();
+        });
+        var qty = document.createElement("span");
+        qty.className = "qty";
+        qty.textContent = String(r.quantity);
+        var plus = document.createElement("button");
+        plus.type = "button";
+        plus.textContent = "+";
+        plus.setAttribute("aria-label", "Aumenta quantità");
+        plus.addEventListener("click", function () {
+          r.quantity = Math.min(10000, r.quantity + 1);
+          trayChanged();
+        });
+        step.append(minus, qty, plus);
+
+        var meta = document.createElement("div");
+        meta.className = "tray-meta";
+        meta.append(
+          makeSelect(LANGUAGES, r.language, function (v) { r.language = v; trayChanged(); }),
+          makeSelect(CONDITIONS, r.condition, function (v) { r.condition = v; trayChanged(); }),
+          makeSelect(FINISHES, r.printing, function (v) { r.printing = v; trayChanged(); })
+        );
+        var remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "tray-remove";
+        remove.textContent = "×";
+        remove.setAttribute("aria-label", "Rimuovi");
+        remove.addEventListener("click", function () {
+          tray = tray.filter(function (x) { return x !== r; });
+          trayChanged();
+        });
+        meta.append(remove);
+
+        row.append(info, step, meta);
+        trayRows.append(row);
+      });
+    }
+
+    function trayChanged() {
+      batchKey = null;
+      saveTray();
+      updateTray();
+    }
+
+    function updateTray() {
+      var total = trayTotal();
+      trayEl.hidden = total === 0;
+      if (total !== 0) {
+        trayCount.textContent = total === 1 ? "1 carta" : total + " carte";
+        addInventoryBtn.disabled = false;
+        renderTrayRows();
+      } else {
+        trayEl.classList.remove("open");
+        trayHead.setAttribute("aria-expanded", "false");
+        trayRows.replaceChildren();
+      }
+    }
+
+    function toast(text, link) {
+      toastEl.replaceChildren();
+      var span = document.createElement("span");
+      span.textContent = text;
+      toastEl.append(span);
+      if (link) {
+        var a = document.createElement("a");
+        a.href = link.href;
+        a.textContent = link.label;
+        a.target = "_blank";
+        a.rel = "noopener";
+        toastEl.append(a);
+      }
+      toastEl.hidden = false;
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(function () { toastEl.hidden = true; }, 7000);
+    }
+
+    function handleResult(data, opts) {
+      if (!data) return;
+      var force = !!(opts && opts.force);
+      if (mode === "multi") {
+        var matches = (data.cards && data.cards.length)
+          ? data.cards
+          : [{ top1: data.top1, box: (data.boxes || [])[0] }];
+        matches.forEach(function (m) { if (m && m.top1) considerAdd(m.top1, force); });
+      } else if (data.top1) {
+        considerAdd(data.top1, force);
+      }
+    }
+
+    async function tick() {
+      if (!stream || live.hidden || !camReady) return;
+      if (busy) { scheduleLive(250); return; }
+      if (!catalogById.has(currentCatalogId())) { scheduleLive(1000); return; }
+      busy = true;
+      try {
+        var viewVersion = cameraViewVersion;
+        var blob = await blobFromCanvas(live, LIVE_MAX, 0.72);
+        if (!blob || viewVersion !== cameraViewVersion) { scheduleLive(LIVE_MS); return; }
+        var data = await identify(blob, { live: true, viewVersion: viewVersion });
+        if (data && data.busy) { scheduleLive(250); return; }
+        if (data) handleResult(data, {});
+        scheduleLive(LIVE_MS);
+      } catch (_) {
+        scheduleLive(500);
+      } finally {
+        busy = false;
+      }
+    }
+
+    async function scanGallery() {
+      if (!gallerySource) return;
+      var source = gallerySource;
+      var revision = scanRevision;
+      stopLive();
+      live.hidden = true;
+      shot.hidden = false;
+      resumeCamera.hidden = false;
+      warming.textContent = "Scansione della foto…";
+      warming.hidden = false;
+      var blob = await blobFromCanvas(source, GALLERY_MAX, GALLERY_QUALITY);
+      if (!blob || revision !== scanRevision) return;
+      for (var attempt = 0; attempt < 12; attempt += 1) {
+        if (revision !== scanRevision) return;
+        var result = await identify(blob, { live: false });
+        if (!result) return;
+        if (!result.busy) { handleResult(result, { force: true }); return; }
+        await new Promise(function (resolve) { setTimeout(resolve, 500); });
+      }
+      if (revision === scanRevision) {
+        warming.textContent = "Scanner occupato. Riprova tra poco.";
+        warming.hidden = false;
+      }
+    }
+
+    function genKey() {
+      try {
+        if (window.crypto && typeof window.crypto.randomUUID === "function") return window.crypto.randomUUID();
+      } catch (_) {}
+      return "batch-" + Date.now() + "-" + Math.random().toString(36).slice(2, 12);
+    }
+
+    function api(path, opts) {
+      opts = opts || {};
+      var headers = Object.assign({}, opts.headers || {});
+      if (token) headers["Authorization"] = "Bearer " + token;
+      if (opts.body && typeof opts.body === "string") headers["Content-Type"] = "application/json";
+      return fetch(ACCOUNT_API + path, Object.assign({}, opts, { headers: headers, credentials: "omit" }))
+        .then(async function (res) {
+          var data = null;
+          try { data = await res.json(); } catch (_) {}
+          if (res.status === 401) {
+            signOutLocal();
+            openSignin();
+            var err401 = new Error((data && data.error) || "Accedi a Card Rails.");
+            err401.status = 401;
+            throw err401;
+          }
+          if (!res.ok) {
+            var err = new Error((data && data.error) || "Richiesta non riuscita.");
+            err.status = res.status;
+            throw err;
+          }
+          return data;
+        });
+    }
+
+    function updateAccountUI() {
+      if (account && account.email) {
+        accountBtn.textContent = String(account.email)[0].toUpperCase();
+        accountBtn.classList.add("signed");
+        accountBtn.setAttribute("aria-label", "Account " + account.email);
+      } else {
+        accountBtn.textContent = "Accedi";
+        accountBtn.classList.remove("signed");
+        accountBtn.setAttribute("aria-label", "Accedi");
+      }
+    }
+
+    function signOutLocal() {
+      token = null;
+      account = null;
+      lsSet(LS_TOKEN, null);
+      updateAccountUI();
+    }
+
+    function openSignin() {
+      document.getElementById("signinError").hidden = true;
+      signinSheet.hidden = false;
+    }
+    function closeSignin() { signinSheet.hidden = true; }
+    function openAccount() {
+      if (!account) { openSignin(); return; }
+      document.getElementById("accountEmail").textContent = account.email;
+      accountSheet.hidden = false;
+    }
+    function openLocation() {
+      document.getElementById("locError").hidden = true;
+      locationSheet.hidden = false;
+    }
+
+    var signinMode = "login";
+    function setSigninMode(mode) {
+      signinMode = mode;
+      var signup = mode === "signup";
+      document.getElementById("signinTitle").textContent = signup ? "Registrati" : "Accedi";
+      document.getElementById("signinSubmit").textContent = signup ? "Registrati" : "Accedi";
+      document.getElementById("signinToggle").textContent = signup
+        ? "Hai già un account? Accedi"
+        : "Non hai un account? Registrati";
+      document.getElementById("signinPassword").setAttribute("autocomplete", signup ? "new-password" : "current-password");
+    }
+
+    async function submitSignin(event) {
+      event.preventDefault();
+      var email = document.getElementById("signinEmail").value.trim();
+      var password = document.getElementById("signinPassword").value;
+      var errorEl = document.getElementById("signinError");
+      var submit = document.getElementById("signinSubmit");
+      errorEl.hidden = true;
+      submit.disabled = true;
+      try {
+        var data = await api("/v1/auth/" + (signinMode === "signup" ? "signup" : "login"), {
+          method: "POST",
+          body: JSON.stringify({ email: email, password: password, client: "web" })
+        });
+        token = data.token;
+        account = data.account;
+        lsSet(LS_TOKEN, token);
+        updateAccountUI();
+        closeSignin();
+        if (pendingAdd) { pendingAdd = false; addAllToInventory(); }
+      } catch (err) {
+        errorEl.textContent = err.message;
+        errorEl.hidden = false;
+      } finally {
+        submit.disabled = false;
+      }
+    }
+
+    async function doSignout() {
+      try { await api("/v1/auth/logout", { method: "POST" }); } catch (_) {}
+      signOutLocal();
+      accountSheet.hidden = true;
+    }
+
+    async function submitScans() {
+      if (!tray.length) return;
+      if (!batchKey) batchKey = genKey();
+      var cards = tray.map(function (r) {
+        return {
+          identity: {
+            game: r.game,
+            name: r.name,
+            setName: r.set || "",
+            number: r.number || "",
+            publicId: r.publicId,
+            cardtraderBlueprintId: r.ctId || ""
+          },
+          art: r.art || "",
+          language: r.language,
+          condition: r.condition,
+          printing: r.printing,
+          firstEdition: false,
+          signed: false,
+          altered: false,
+          quantity: r.quantity,
+          price: 0
+        };
+      });
+      try {
+        await api("/v1/inventory/scans", {
+          method: "POST",
+          body: JSON.stringify({ idempotencyKey: batchKey, intent: "sale", cards: cards })
+        });
+        var n = trayTotal();
+        tray = [];
+        batchKey = null;
+        saveTray();
+        updateTray();
+        toast(n + (n === 1 ? " carta aggiunta a Card Rails" : " carte aggiunte a Card Rails"),
+          { href: "https://cardrails.vercel.app/", label: "Apri inventario" });
+      } catch (err) {
+        toast(err.message);
+      }
+    }
+
+    async function addAllToInventory() {
+      if (!trayTotal()) return;
+      if (!token) { pendingAdd = true; openSignin(); return; }
+      try {
+        var inv = await api("/v1/inventory");
+        var settings = (inv && inv.scanSettings) || {};
+        if (settings.locationConfigured !== true) { openLocation(); return; }
+        await submitScans();
+      } catch (err) {
+        toast(err.message);
+      }
+    }
+
+    async function submitLocation(event) {
+      event.preventDefault();
+      var label = document.getElementById("locLabel").value.trim();
+      var stack = parseInt(document.getElementById("locStack").value, 10);
+      var errorEl = document.getElementById("locError");
+      errorEl.hidden = true;
+      if (!label || !(stack >= 1)) {
+        errorEl.textContent = "Inserisci un'etichetta e una capacità valide.";
+        errorEl.hidden = false;
+        return;
+      }
+      try {
+        await api("/v1/inventory/settings", {
+          method: "PUT",
+          body: JSON.stringify({ storageLabel: label, stackSize: stack })
+        });
+        locationSheet.hidden = true;
+        await submitScans();
+      } catch (err) {
+        errorEl.textContent = err.message;
+        errorEl.hidden = false;
+      }
+    }
+
+    async function restoreAccount() {
+      if (!token) return;
+      try {
+        var data = await api("/v1/auth/me");
+        account = data.account;
+        updateAccountUI();
+      } catch (_) {}
+    }
+
+    modeSingle.addEventListener("click", function () { setMode("single"); });
+    modeMulti.addEventListener("click", function () { setMode("multi"); });
+    torchBtn.addEventListener("click", function () { toggleTorch(); });
+    galleryBtn.addEventListener("click", function () { fileInput.click(); });
+    startCameraTap.addEventListener("click", function () {
+      startCameraTap.hidden = true;
+      warming.hidden = true;
+      startCameraRaw();
+    });
+    resumeCamera.addEventListener("click", function () {
+      invalidateScan();
+      gallerySource = null;
+      if (galleryObjectUrl) URL.revokeObjectURL(galleryObjectUrl);
+      galleryObjectUrl = null;
+      shot.removeAttribute("src");
+      shot.hidden = true;
+      live.hidden = false;
+      resumeCamera.hidden = true;
+      warming.hidden = true;
+      if (stream) scheduleLive(100); else startCameraRaw();
+    });
+    cameraSelect.addEventListener("change", function () { startCameraRaw(cameraSelect.value); });
+    window.addEventListener("resize", cameraViewChanged);
+    window.addEventListener("orientationchange", cameraViewChanged);
+    if (window.screen && screen.orientation && screen.orientation.addEventListener) {
+      screen.orientation.addEventListener("change", cameraViewChanged);
+    }
+    live.addEventListener("resize", invalidateCameraView);
+
+    fileInput.addEventListener("change", function (ev) {
+      var file = ev.target.files && ev.target.files[0];
+      if (!file) return;
+      invalidateScan();
+      invalidateCameraView();
+      stopLive();
+      var revision = scanRevision;
+      if (galleryObjectUrl) URL.revokeObjectURL(galleryObjectUrl);
+      galleryObjectUrl = URL.createObjectURL(file);
+      var img = new Image();
+      img.onload = function () {
+        if (revision !== scanRevision) return;
+        gallerySource = img;
+        shot.src = img.src;
+        scanGallery();
+      };
+      img.onerror = function () {
+        if (revision !== scanRevision) return;
+        warming.textContent = "Impossibile aprire la foto. Usa JPEG o PNG.";
+        warming.hidden = false;
+        resumeCamera.hidden = false;
+      };
+      img.src = galleryObjectUrl;
+      ev.target.value = "";
+    });
+
+    trayHead.addEventListener("click", function () {
+      var open = trayEl.classList.toggle("open");
+      trayHead.setAttribute("aria-expanded", String(open));
+    });
+    addInventoryBtn.addEventListener("click", function (event) {
+      event.stopPropagation();
+      addAllToInventory();
+    });
+
+    accountBtn.addEventListener("click", function () {
+      if (account) openAccount(); else { setSigninMode("login"); openSignin(); }
+    });
+    document.getElementById("signinForm").addEventListener("submit", submitSignin);
+    document.getElementById("signinToggle").addEventListener("click", function () {
+      setSigninMode(signinMode === "signup" ? "login" : "signup");
+    });
+    document.getElementById("signinClose").addEventListener("click", closeSignin);
+    document.getElementById("accountClose").addEventListener("click", function () { accountSheet.hidden = true; });
+    document.getElementById("signoutBtn").addEventListener("click", doSignout);
+    document.getElementById("locationForm").addEventListener("submit", submitLocation);
+    document.getElementById("locCancel").addEventListener("click", function () { locationSheet.hidden = true; });
+    [signinSheet, accountSheet, locationSheet].forEach(function (sheet) {
+      sheet.addEventListener("click", function (event) {
+        if (event.target === sheet) sheet.hidden = true;
+      });
+    });
+
+    window.addEventListener("pagehide", function () {
+      cameraRequestVersion += 1;
+      invalidateScan();
+      stopLive();
+      cancelAnimationFrame(pulseRaf);
+      if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
+    });
+
+    setTimeout(function () { boot.classList.add("hide"); }, 500);
+    startPulse();
+    loadTray();
+    updateTray();
+    setSigninMode("login");
+    token = lsGet(LS_TOKEN);
+    updateAccountUI();
+    restoreAccount();
+    loadCatalogs().then(function () { startCameraGated(); });
+  })();
+  </script>
+</body>
+</html>
