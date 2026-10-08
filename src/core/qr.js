@@ -88,15 +88,24 @@ function utf8Bytes(text) {
  * @param {{ ecc?: 'M' | 'H' }} [opts]
  */
 export function encodeQr(text, opts = {}) {
-  const level = opts.ecc === 'M' ? 'M' : 'H';
-  const cfg = ECC[level];
   const bytes = utf8Bytes(text);
-  let ver = 1;
-  for (; ver <= 10; ver += 1) {
-    const countBits = ver <= 9 ? 8 : 16;
-    if (4 + countBits + bytes.length * 8 <= dataCodewords(ver, level) * 8) break;
+  const fits = (lvl) => {
+    for (let v = 1; v <= 10; v += 1) {
+      const countBits = v <= 9 ? 8 : 16;
+      if (4 + countBits + bytes.length * 8 <= dataCodewords(v, lvl) * 8) return v;
+    }
+    return 0;
+  };
+  // H holds 119 bytes at version 10; the pairing URL is ~133. Fall back to M
+  // (213 bytes) instead of throwing, which blanked the desk for every new visitor.
+  let level = opts.ecc === 'M' ? 'M' : 'H';
+  let ver = fits(level);
+  if (!ver && level === 'H') {
+    level = 'M';
+    ver = fits(level);
   }
-  if (ver > 10) throw new Error('QR payload too long');
+  if (!ver) throw new Error('QR payload too long');
+  const cfg = ECC[level];
   const size = ver * 4 + 17;
   const capacityBits = dataCodewords(ver, level) * 8;
 
