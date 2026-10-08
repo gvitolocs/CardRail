@@ -41,8 +41,12 @@ import com.pokoin.cardrails.engine.Conditions
 import com.pokoin.cardrails.state.AppModel
 import kotlinx.coroutines.launch
 
+/** Shelf code like the web app: numeric boxes get a "B" prefix ("05" → "B05"); named boxes stay as written. */
 fun locationCode(item: InventoryItem): String? =
-    item.location?.box?.let { box -> "B$box-R${item.location.row ?: "?"}-${item.location.position ?: "?"}" }
+    item.location?.box?.takeIf { it.isNotBlank() }?.let { box ->
+        val label = if (box.first().isDigit()) "B$box" else box
+        "$label-R${item.location.row ?: "?"}-${item.location.position ?: "?"}"
+    }
 
 @Composable
 fun InventoryScreen(model: AppModel) {

@@ -51,10 +51,18 @@ class CameraController(
         camera?.cameraControl?.enableTorch(enabled)
     }
 
-    fun stop() {
+    /**
+     * Unbinds the camera, then runs [release] on the analysis thread after the frame
+     * in progress finishes: closing a TFLite interpreter while it runs crashes natively.
+     */
+    fun stop(release: () -> Unit = {}) {
         camera?.cameraControl?.enableTorch(false)
         provider?.unbindAll()
-        executor?.shutdown()
+        val pool = executor
+        if (pool == null) release() else {
+            pool.execute(release)
+            pool.shutdown()
+        }
         executor = null
         camera = null
     }

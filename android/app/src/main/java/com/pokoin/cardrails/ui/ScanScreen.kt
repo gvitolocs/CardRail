@@ -48,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -171,7 +172,13 @@ private fun CameraBox(model: AppModel) {
     var quad by remember { mutableStateOf<List<Point>?>(null) }
     var flash by remember { mutableStateOf(false) }
     var torch by remember { mutableStateOf(false) }
-    val preview = remember { PreviewView(context).apply { scaleType = PreviewView.ScaleType.FILL_CENTER } }
+    val preview = remember {
+        PreviewView(context).apply {
+            scaleType = PreviewView.ScaleType.FILL_CENTER
+            // TextureView respects the Compose box clip; a SurfaceView drew over the controls.
+            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+        }
+    }
     val detector = remember { runCatching { CardDetector(context) }.getOrNull() }
     val controller = remember(detector) {
         detector?.let {
@@ -192,7 +199,9 @@ private fun CameraBox(model: AppModel) {
     }
     DisposableEffect(controller) {
         controller?.start()
-        onDispose { controller?.stop(); detector?.close() }
+        onDispose {
+            if (controller != null) controller.stop { detector?.close() } else detector?.close()
+        }
     }
     LaunchedEffect(Unit) {
         model.accepted.collect {
@@ -201,7 +210,7 @@ private fun CameraBox(model: AppModel) {
         }
     }
 
-    Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
+    Box(Modifier.fillMaxSize().clipToBounds().background(androidx.compose.ui.graphics.Color.Black)) {
         AndroidView({ preview }, Modifier.fillMaxSize())
         androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
             val points = quad ?: return@Canvas
