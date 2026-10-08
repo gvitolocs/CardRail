@@ -1,4 +1,6 @@
 pub mod auth;
+pub mod catalog_lookup;
+pub mod codes;
 pub mod config;
 pub mod domain;
 pub mod error;
@@ -48,6 +50,10 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     (
         "004_inventory_box_index.sql",
         include_str!("../sql/004_inventory_box_index.sql"),
+    ),
+    (
+        "005_inventory_seq.sql",
+        include_str!("../sql/005_inventory_seq.sql"),
     ),
 ];
 
@@ -113,6 +119,7 @@ pub fn app(state: AppState) -> Router {
 
     Router::new()
         .route("/healthz", get(healthz))
+        .route("/v1/dictionary", get(dictionary))
         .merge(auth::routes())
         .merge(inventory::routes())
         .merge(catalog)
@@ -140,6 +147,14 @@ async fn catalog_cache(req: Request, next: Next) -> Response {
             .headers_mut()
             .insert(CACHE_CONTROL, HeaderValue::from_static(value));
     }
+    response
+}
+
+async fn dictionary() -> Response {
+    let mut response = (StatusCode::OK, codes::dictionary()).into_response();
+    let headers = response.headers_mut();
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    headers.insert(CACHE_CONTROL, HeaderValue::from_static("public, max-age=86400"));
     response
 }
 

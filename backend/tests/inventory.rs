@@ -475,3 +475,175 @@ async fn catalog_files_are_served_without_a_session() {
         traversal.status()
     );
 }
+
+
+fn import_catalog_dir() -> PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "cardrails-import-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(dir.join("pokemon_western")).unwrap();
+    std::fs::write(
+        dir.join("index.json"),
+        br#"{"catalogs":[{"id":"pokemon_western","game":"pokemon","languages":["EN"],"count":2,
+            "embeddings":{"path":"pokemon_western/embeddings-a.f16","bytes":0,"sha256":"x"},
+            "cards":{"path":"pokemon_western/cards-a.json","bytes":0,"sha256":"x"}}]}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("pokemon_western/cards-a.json"),
+        br#"{"fields":["id","name","number","set","image"],"rows":[["219698","Oddish","1/98","Ancient Origins","https://img/1.jpg"],["219702","Gloom",null,"Ancient Origins",null]]}"#,
+    )
+    .unwrap();
+    dir
+}
+
+async fn compact(c: &Client, base: &str) -> Value {
+    c.get(format!("{base}/v1/inventory/compact"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn compact_inventory_is_lossless_and_sorted_by_shelf() {
+    let _guard = lock().await;
+    let (base, _pool) = spawn().await;
+    let c = client();
+    signup(&c, &base, "compact@example.com", "correct horse").await;
+    assert_eq!(configure(&c, &base).await.status(), 200);
+
+    let mut with_blueprint = card("7", 2, 3.5);
+    with_blueprint["identity"]["publicId"] = json!("219698");
+    with_blueprint["signed"] = json!(true);
+    with_blueprint["language"] = json!("IT");
+    let resp = scan(&c, &base, "compact-key", "sale", vec![with_blueprint, card("8", 1, 1.0)]).await;
+    assert_eq!(resp.status(), 201);
+
+    let full = inventory(&c, &base).await;
+    let items = full["items"].as_array().unwrap();
+    assert_eq!(items.len(), 2);
+    let manual = items.iter().find(|i| i["identity"]["name"] == "Card 8").unwrap();
+    assert!(manual["createdAt"].as_str().unwrap().ends_with('Z'));
+    let priced = items.iter().find(|i| i["identity"]["publicId"] == "219698").unwrap();
+    assert_eq!(priced["price"], 3.5);
+
+    let compact = compact(&c, &base).await;
+    assert_eq!(compact["boxes"], json!(["A"]));
+    let fields: Vec<&str> = compact["fields"].as_array().unwrap().iter().map(|f| f.as_str().unwrap()).collect();
+    let at = |row: &Value, name: &str| row[fields.iter().position(|f| *f == name).unwrap()].clone();
+    let rows = compact["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 2);
+    // Shelf order: positions 1-2, then 3.
+    let first = &rows[0];
+    assert_eq!(first.as_array().unwrap().len(), fields.len(), "blueprint rows carry no extras");
+    assert_eq!(at(first, "publicId"), 219698);
+    assert_eq!(at(first, "game"), 1);
+    assert_eq!(at(first, "language"), 2);
+    assert_eq!(at(first, "condition"), 2);
+    assert_eq!(at(first, "printing"), 1);
+    assert_eq!(at(first, "priceCents"), 350);
+    assert_eq!(at(first, "box"), 0);
+    assert_eq!(at(first, "row"), 1);
+    assert_eq!(at(first, "position"), 1);
+    assert_eq!(at(first, "end"), 2);
+    assert_eq!(at(first, "flags"), 2);
+    // The compact id is the numeric seq; PATCH accepts it in place of the cr_ id.
+    let seq = at(first, "id").as_i64().expect("numeric seq id");
+    let patched = c
+        .patch(format!("{base}/v1/inventory/items/{seq}"))
+        .json(&json!({ "version": at(first, "version"), "price": 4.0 }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(patched.status(), 200);
+    let patched: Value = patched.json().await.unwrap();
+    assert_eq!(patched["item"]["id"], priced["id"]);
+    let second = rows[1].as_array().unwrap();
+    assert_eq!(second.len(), fields.len() + 1, "manual copies carry their details");
+    assert_eq!(at(&rows[1], "publicId"), Value::Null);
+    assert_eq!(at(&rows[1], "position"), 3);
+    assert_eq!(second[fields.len()]["n"], "Card 8");
+    assert_eq!(second[fields.len()]["k"], "8");
+    assert_eq!(compact["revision"].as_i64().unwrap() + 1, patched["revision"].as_i64().unwrap());
+}
+
+#[tokio::test]
+async fn dictionary_is_public_and_stable() {
+    let _guard = lock().await;
+    let (base, _pool) = spawn().await;
+    let resp = client().get(format!("{base}/v1/dictionary")).send().await.unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.headers().get("cache-control").unwrap().to_str().unwrap(), "public, max-age=86400");
+    let dict: Value = resp.json().await.unwrap();
+    assert_eq!(dict["version"], 1);
+    assert_eq!(dict["languages"]["1"], "EN");
+    assert_eq!(dict["languages"]["2"], "IT");
+    assert_eq!(dict["languages"]["5"], "JP");
+    assert_eq!(dict["conditions"]["2"], "NM");
+    assert_eq!(dict["games"]["4"], "one_piece");
+    assert_eq!(dict["flags"]["8"], "collection");
+}
+
+#[tokio::test]
+async fn compact_import_resolves_blueprints_and_allocates() {
+    let _guard = lock().await;
+    let (base, _pool) = spawn_with_catalog(Some(import_catalog_dir())).await;
+    let c = client();
+    signup(&c, &base, "import@example.com", "correct horse").await;
+    assert_eq!(configure(&c, &base).await.status(), 200);
+
+    let import = |key: &str, rows: Value| {
+        let c = c.clone();
+        let url = format!("{base}/v1/inventory/import");
+        let body = json!({ "idempotencyKey": key, "intent": "sale", "rows": rows });
+        async move { c.post(url).json(&body).send().await.unwrap() }
+    };
+
+    let unknown = import("import-key-0", json!([[999, 1, 1, 2, 1, 1, 100, 0]])).await;
+    assert_eq!(unknown.status(), 400);
+    assert!(unknown.text().await.unwrap().contains("pokemon/999"));
+
+    let ok = import("import-key-1", json!([[219698, 1, 2, 2, 2, 3, 250, 1], ["219702", 1, 1, 3, "Cosmos Holo", 1, 99, 8]])).await;
+    assert_eq!(ok.status(), 201);
+    let body: Value = ok.json().await.unwrap();
+    assert_eq!(body["imported"], 2);
+    let again: Value = import("import-key-1", json!([[219698, 1, 1, 2, 1, 1, 0, 0]])).await.json().await.unwrap();
+    assert_eq!(again, body, "same idempotency key returns the stored response");
+
+    let full = inventory(&c, &base).await;
+    let items = full["items"].as_array().unwrap();
+    assert_eq!(items.len(), 2);
+    let oddish = items.iter().find(|i| i["identity"]["publicId"] == "219698").unwrap();
+    assert_eq!(oddish["identity"]["name"], "Oddish");
+    assert_eq!(oddish["identity"]["setName"], "Ancient Origins");
+    assert_eq!(oddish["identity"]["number"], "1/98");
+    assert_eq!(oddish["art"], "https://img/1.jpg");
+    assert_eq!(oddish["language"], "IT");
+    assert_eq!(oddish["printing"], "Holo");
+    assert_eq!(oddish["firstEdition"], true);
+    assert_eq!(oddish["price"], 2.5);
+    assert_eq!(oddish["source"], "import");
+    assert_eq!(oddish["location"]["position"], 1);
+    assert_eq!(oddish["location"]["end"], 3);
+    let gloom = items.iter().find(|i| i["identity"]["publicId"] == "219702").unwrap();
+    assert_eq!(gloom["printing"], "Cosmos Holo");
+    assert_eq!(gloom["condition"], "SP");
+    assert_eq!(gloom["purpose"], "collection");
+    assert_eq!(gloom["price"], 0.0);
+    assert_eq!(gloom["location"]["position"], 4);
+
+    let rows = compact(&c, &base).await["rows"].as_array().unwrap().clone();
+    assert!(rows.iter().all(|r| r.as_array().unwrap().len() == 14), "imported blueprint rows carry no extras");
+    assert_eq!(rows[0][13], 16 + 1, "imported + first edition flags");
+
+    let bad = import("import-key-2", json!([[219698, 99, 1, 2, 1, 1, 0, 0]])).await;
+    assert_eq!(bad.status(), 400);
+}
