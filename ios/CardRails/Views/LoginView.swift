@@ -10,6 +10,9 @@ struct LoginView: View {
     @State private var password = ""
     @State private var error: String?
     @State private var busy = false
+    @FocusState private var focus: Field?
+
+    private enum Field { case email, password }
 
     private var canSubmit: Bool {
         !email.trimmingCharacters(in: .whitespaces).isEmpty && password.count >= 4 && !busy
@@ -42,6 +45,9 @@ struct LoginView: View {
                         .keyboardType(.emailAddress)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                        .submitLabel(.next)
+                        .focused($focus, equals: .email)
+                        .onSubmit { focus = .password }
                         .textFieldStyle(.plain)
                         .padding(14)
                         .background(Theme.card, in: RoundedRectangle(cornerRadius: Theme.corner))
@@ -51,6 +57,9 @@ struct LoginView: View {
 
                     SecureField("Password", text: $password)
                         .textContentType(mode == .login ? .password : .newPassword)
+                        .submitLabel(.go)
+                        .focused($focus, equals: .password)
+                        .onSubmit(submit)
                         .textFieldStyle(.plain)
                         .padding(14)
                         .background(Theme.card, in: RoundedRectangle(cornerRadius: Theme.corner))
@@ -89,12 +98,15 @@ struct LoginView: View {
         }
         .background(Theme.background)
         .scrollDismissesKeyboard(.interactively)
+        .onTapGesture { focus = nil }
     }
 
     private func submit() {
         guard canSubmit else { return }
         busy = true
         error = nil
+        focus = nil
+        let email = email.trimmingCharacters(in: .whitespacesAndNewlines)
         Task {
             do {
                 if mode == .login {
@@ -105,7 +117,7 @@ struct LoginView: View {
             } catch let apiError as APIError {
                 error = Self.describe(apiError)
             } catch {
-                self.error = error.localizedDescription
+                self.error = AppModel.genericError
             }
             busy = false
         }

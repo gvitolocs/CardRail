@@ -1,7 +1,9 @@
 import Combine
 import CoreGraphics
 import Foundation
+import Network
 import UIKit
+import os
 
 /// Which catalog is currently available to the scanner.
 enum CatalogState: Equatable {
@@ -38,28 +40,44 @@ final class AppModel: ObservableObject {
     @Published var isCommitting = false
     @Published var needsStorageSetup = false
     @Published var lastRecognitionMs: Double = 0
+    @Published var isOffline = false
     @Published var acceptedFlash = 0
     @Published private(set) var recognizer: Recognizer?
 
     private let tokenStore: TokenStoring
     private let catalogStore: CatalogStore
+    private let persistence: PersistenceStore
+    private let defaults: UserDefaults
     private var catalogTask: Task<Void, Never>?
     private var pendingIdempotencyKey: String?
+    private var commitFailedOffline = false
+    private var lastInventoryRefresh: Date?
     private var signOutObserver: NSObjectProtocol?
+    private var subscriptions = Set<AnyCancellable>()
+    private let pathMonitor = NWPathMonitor()
     private var didLaunch = false
+    private let logger = Logger(subsystem: "com.pokoin.cardrails", category: "app")
+
+    static let installedFlag = "cardrails.installed"
 
     private static let photoConcurrency = 4
 
     init(
         api: APIClient? = nil,
         tokenStore: TokenStoring = KeychainTokenStore(),
-        catalogStore: CatalogStore? = nil
+        catalogStore: CatalogStore? = nil,
+        persistence: PersistenceStore = PersistenceStore(),
+        defaults: UserDefaults = .standard
     ) {
         self.tokenStore = tokenStore
         self.api = api ?? APIClient(tokenStore: tokenStore)
         self.catalogStore = catalogStore
             ?? CatalogStore(apiBase: (api ?? APIClient(tokenStore: tokenStore)).baseURL)
+        self.persistence = persistence
+        self.defaults = defaults
         observeSignOut()
+        observePersistence()
+        observeNetwork()
     }
 
     // MARK: - Launch
@@ -68,25 +86,124 @@ final class AppModel: ObservableObject {
         guard !didLaunch else { return }
         didLaunch = true
 
-        if tokenStore.load() != nil {
-            do {
-                account = try await api.me()
-                isSignedIn = true
-            } catch let error as APIError {
-                if case .transport = error {
-                    // Offline: keep the user signed in.
-                    isSignedIn = true
-                } else {
-                    tokenStore.clear()
-                    isSignedIn = false
-                }
-            } catch {
-                isSignedIn = false
-            }
+        // iOS keeps keychain items across app deletion: a fresh install starts
+        // signed out instead of reviving a stale session.
+        if !defaults.bool(forKey: Self.installedFlag) {
+            tokenStore.clear()
+            persistence.clear()
+            defaults.set(true, forKey: Self.installedFlag)
         }
 
+        guard tokenStore.load() != nil else { return }
+
+        // Show the signed-in app at once from the last snapshot; the network
+        // only refreshes it. Only a 401 (APIClient posts .cardRailsSignedOut)
+        // signs the user out — offline, 5xx or a bad payload keep the session.
+        restoreCachedState()
+        isSignedIn = true
+
+        do {
+            account = try await api.me()
+        } catch {
+            logger.error("session check failed, staying signed in: \(String(describing: error), privacy: .public)")
+        }
         guard isSignedIn else { return }
         await loadAfterSignIn()
+    }
+
+    private func restoreCachedState() {
+        if let state = persistence.loadState() {
+            account = state.account
+            scanSettings = state.scanSettings
+            items = state.items
+            game = state.game
+            language = state.language
+            condition = state.condition
+            printing = state.printing
+        }
+        if let tray = persistence.loadTray() {
+            pendingIdempotencyKey = tray.pendingIdempotencyKey
+            scanSession.restore(persisted: tray.lines) { [persistence] id in
+                guard let data = persistence.loadCrop(id),
+                      let image = UIImage(data: data)?.cgImage else { return nil }
+                return image
+            }
+        }
+    }
+
+    // MARK: - Persistence
+
+    private func observePersistence() {
+        let changes: [AnyPublisher<Void, Never>] = [
+            $account.map { _ in () }.eraseToAnyPublisher(),
+            $scanSettings.map { _ in () }.eraseToAnyPublisher(),
+            $items.map { _ in () }.eraseToAnyPublisher(),
+            $game.map { _ in () }.eraseToAnyPublisher(),
+            $language.map { _ in () }.eraseToAnyPublisher(),
+            $condition.map { _ in () }.eraseToAnyPublisher(),
+            $printing.map { _ in () }.eraseToAnyPublisher(),
+        ]
+        // @Published emits before the property changes: hop to the next main
+        // run-loop turn so the snapshot reads the new values.
+        Publishers.MergeMany(changes)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in self?.persistState() }
+            .store(in: &subscriptions)
+        scanSession.$lines
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.persistTray() }
+            .store(in: &subscriptions)
+    }
+
+    private func persistState() {
+        guard isSignedIn else { return }
+        persistence.saveState(PersistedState(
+            account: account,
+            scanSettings: scanSettings,
+            items: items,
+            game: game,
+            language: language,
+            condition: condition,
+            printing: printing
+        ))
+    }
+
+    private func persistTray() {
+        guard isSignedIn else { return }
+        var crops: [UUID: Data] = [:]
+        for line in scanSession.lines {
+            if let crop = line.crop, let jpeg = Self.jpegData(crop) { crops[line.id] = jpeg }
+        }
+        persistence.saveTray(
+            PersistedTray(lines: scanSession.persistedLines(), pendingIdempotencyKey: pendingIdempotencyKey),
+            crops: crops
+        )
+    }
+
+    // MARK: - Lifecycle
+
+    private func observeNetwork() {
+        pathMonitor.pathUpdateHandler = { [weak self] path in
+            let offline = path.status != .satisfied
+            Task { @MainActor in
+                guard let self else { return }
+                let cameBack = self.isOffline && !offline
+                self.isOffline = offline
+                if cameBack { await self.becameActive() }
+            }
+        }
+        pathMonitor.start(queue: DispatchQueue(label: "com.pokoin.cardrails.network"))
+    }
+
+    /// App returned to the foreground (or the network came back): refresh the
+    /// inventory at most every 30 s and retry a commit that failed offline.
+    func becameActive() async {
+        guard isSignedIn else { return }
+        if commitFailedOffline, !scanSession.lines.isEmpty {
+            await commit()
+        }
+        if let last = lastInventoryRefresh, Date().timeIntervalSince(last) < 30 { return }
+        await refreshInventory()
     }
 
     private func loadAfterSignIn() async {
@@ -131,7 +248,6 @@ final class AppModel: ObservableObject {
 
     func signup(email: String, password: String) async throws {
         let response = try await api.signup(email: email, password: password)
-        tokenStore.save(response.token)
         account = response.account
         isSignedIn = true
         await loadAfterSignIn()
@@ -154,6 +270,9 @@ final class AppModel: ObservableObject {
 
     private func resetToSignedOut() {
         tokenStore.clear()
+        persistence.clear()
+        pendingIdempotencyKey = nil
+        commitFailedOffline = false
         isSignedIn = false
         account = nil
         items = []
@@ -171,6 +290,7 @@ final class AppModel: ObservableObject {
             let response = try await api.inventory()
             items = response.items
             scanSettings = response.scanSettings
+            lastInventoryRefresh = Date()
         } catch {
             // Offline: keep whatever we already have.
         }
@@ -190,7 +310,7 @@ final class AppModel: ObservableObject {
                 toast = Self.message(for: error)
             }
         } catch {
-            toast = error.localizedDescription
+            toast = Self.genericError
         }
     }
 
@@ -206,7 +326,7 @@ final class AppModel: ObservableObject {
                 toast = Self.message(for: error)
             }
         } catch {
-            toast = error.localizedDescription
+            toast = Self.genericError
         }
     }
 
@@ -223,7 +343,7 @@ final class AppModel: ObservableObject {
         } catch let error as APIError {
             toast = Self.message(for: error)
         } catch {
-            toast = error.localizedDescription
+            toast = Self.genericError
         }
     }
 
@@ -387,15 +507,21 @@ final class AppModel: ObservableObject {
             items.insert(contentsOf: response.items, at: 0)
             scanSession.clear()
             pendingIdempotencyKey = nil
+            commitFailedOffline = false
+            persistTray()
             toast = "\(response.items.count) carte aggiunte all'inventario"
         } catch let error as APIError {
-            if case .server(_, let message) = error, message.lowercased().contains("location") {
+            if case .transport = error {
+                commitFailedOffline = true
+                toast = "Sei offline — le carte restano in coda e partono appena torna la rete"
+            } else if case .server(_, let message) = error, message.lowercased().contains("location") {
                 needsStorageSetup = true
             } else {
                 toast = Self.message(for: error)
             }
         } catch {
-            toast = error.localizedDescription
+            logger.error("commit failed: \(String(describing: error), privacy: .public)")
+            toast = Self.genericError
         }
     }
 
@@ -403,6 +529,7 @@ final class AppModel: ObservableObject {
         if let key = pendingIdempotencyKey { return key }
         let key = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
         pendingIdempotencyKey = key
+        persistTray()  // a crash mid-commit must retry with this same key
         return key
     }
 
@@ -442,11 +569,13 @@ final class AppModel: ObservableObject {
         UIImage(cgImage: image).jpegData(compressionQuality: 0.7)
     }
 
-    private static func message(for error: APIError) -> String {
+    static let genericError = "Qualcosa è andato storto. Riprova."
+
+    static func message(for error: APIError) -> String {
         switch error {
         case .server(_, let message): return message
-        case .invalidResponse: return "Risposta non valida"
-        case .transport(let description): return description
+        case .invalidResponse: return genericError
+        case .transport: return "Connessione assente. Riprova quando sei online."
         }
     }
 }

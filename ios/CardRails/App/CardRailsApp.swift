@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct CardRailsApp: App {
     @StateObject private var model = AppModel()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
@@ -10,6 +11,9 @@ struct CardRailsApp: App {
                 .environmentObject(model)
                 .preferredColorScheme(.dark)
                 .task { await model.launch() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await model.becameActive() } }
         }
     }
 }
@@ -27,6 +31,19 @@ struct RootView: View {
             }
         }
         .tint(Theme.accent)
+        .overlay(alignment: .top) {
+            if model.isSignedIn && model.isOffline {
+                Text("Sei offline — le carte restano in coda")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.text)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Theme.accent, in: Capsule())
+                    .padding(.top, 4)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: model.isOffline)
         .overlay(alignment: .bottom) {
             if let toast = model.toast {
                 ToastView(message: toast) { model.toast = nil }

@@ -30,7 +30,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.pokoin.cardrails
         PRODUCT_NAME: CardRails
-        DEVELOPMENT_TEAM: 73Q59USF6K
+        DEVELOPMENT_TEAM: M2P66R95WD
         CODE_SIGN_STYLE: Automatic
         TARGETED_DEVICE_FAMILY: "1"
         IPHONEOS_DEPLOYMENT_TARGET: "17.0"

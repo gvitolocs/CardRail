@@ -42,7 +42,7 @@ struct CatalogIndex: Codable {
     }
 }
 
-struct CardRecord: Hashable, Sendable {
+struct CardRecord: Codable, Hashable, Sendable {
     let id: String
     let name: String
     let number: String?
@@ -79,7 +79,7 @@ actor CatalogStore {
     private var loadedCatalog: LoadedCatalog?
     private var verified: [String: String] = [:]
 
-    init(apiBase: URL, root: URL? = nil, session: URLSession = .shared) {
+    init(apiBase: URL, root: URL? = nil, session: URLSession? = nil) {
         self.apiBase = apiBase
         if let root = root {
             self.root = root
@@ -90,7 +90,16 @@ actor CatalogStore {
             )[0]
             self.root = base.appendingPathComponent("catalogs", isDirectory: true)
         }
-        self.session = session
+        if let session = session {
+            self.session = session
+        } else {
+            // Catalog files are large; give them a longer window than the API.
+            let configuration = URLSessionConfiguration.default
+            configuration.timeoutIntervalForRequest = 60
+            configuration.timeoutIntervalForResource = 120
+            configuration.waitsForConnectivity = true
+            self.session = URLSession(configuration: configuration)
+        }
         self.verified = Self.loadVerified(at: self.root)
     }
 

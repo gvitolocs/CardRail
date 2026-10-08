@@ -17,6 +17,22 @@ struct ScanLine: Identifiable {
     var altered: Bool = false
 }
 
+/// Disk representation of a tray line; the `CGImage` crop is stored separately
+/// as a JPEG file keyed by the line id.
+struct PersistedScanLine: Codable, Equatable {
+    let id: UUID
+    let record: CardRecord
+    let game: String
+    let language: String
+    let condition: String
+    let printing: String
+    let quantity: Int
+    let score: Float
+    let firstEdition: Bool
+    let signed: Bool
+    let altered: Bool
+}
+
 /// Pure scan-tray logic: dedupes repeated camera frames and builds the API
 /// commit payload. Unit-tested without a camera.
 @MainActor
@@ -146,5 +162,48 @@ final class ScanSession: ObservableObject {
                 )
             }
         )
+    }
+
+    // MARK: - Persistence
+
+    /// The lines as plain values (no image), ready to write to disk.
+    func persistedLines() -> [PersistedScanLine] {
+        lines.map { line in
+            PersistedScanLine(
+                id: line.id,
+                record: line.record,
+                game: line.game,
+                language: line.language,
+                condition: line.condition,
+                printing: line.printing,
+                quantity: line.quantity,
+                score: line.score,
+                firstEdition: line.firstEdition,
+                signed: line.signed,
+                altered: line.altered
+            )
+        }
+    }
+
+    /// Replace the tray with persisted lines. `crop` supplies the restored JPEG
+    /// for each line id (already-small thumbnails).
+    func restore(persisted: [PersistedScanLine], crop: (UUID) -> CGImage?) {
+        clear()
+        lines = persisted.map { line in
+            ScanLine(
+                id: line.id,
+                record: line.record,
+                game: line.game,
+                language: line.language,
+                condition: line.condition,
+                printing: line.printing,
+                quantity: line.quantity,
+                score: line.score,
+                crop: crop(line.id),
+                firstEdition: line.firstEdition,
+                signed: line.signed,
+                altered: line.altered
+            )
+        }
     }
 }

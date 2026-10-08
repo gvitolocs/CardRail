@@ -64,7 +64,12 @@ final class AppModelTests: XCTestCase {
             tokenStore: tokens,
             notificationCenter: NotificationCenter()
         )
-        let model = AppModel(api: client, tokenStore: tokens)
+        let model = AppModel(
+            api: client,
+            tokenStore: tokens,
+            persistence: makeTempPersistence(),
+            defaults: makeInstalledDefaults()
+        )
         model.isSignedIn = true
         model.scanSettings = .default
         model.intent = "sale"

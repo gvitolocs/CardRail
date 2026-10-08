@@ -110,12 +110,20 @@ struct ScanView: View {
             }
             camera.setRecognizer(model.recognizer)
             camera.start()
+            UIApplication.shared.isIdleTimerDisabled = true
         }
-        .onDisappear { camera.stop() }
+        .onDisappear {
+            camera.stop()
+            UIApplication.shared.isIdleTimerDisabled = false
+        }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
-            case .active: camera.start()
-            case .background: camera.stop()
+            case .active:
+                camera.start()
+                UIApplication.shared.isIdleTimerDisabled = true
+            case .background:
+                camera.stop()
+                UIApplication.shared.isIdleTimerDisabled = false
             default: break
             }
         }

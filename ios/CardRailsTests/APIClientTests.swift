@@ -34,7 +34,7 @@ final class APIClientTests: XCTestCase {
         let box = Box()
         TestURLProtocol.handler = { request in
             box.value = request.value(forHTTPHeaderField: "Authorization")
-            return (200, Data(#"{"id":"a1","email":"e@x.com","createdAt":"now"}"#.utf8))
+            return (200, Data(#"{"account":{"id":"a1","email":"e@x.com","createdAt":"now"}}"#.utf8))
         }
         let tokens = FakeTokenStore()
         tokens.token = "tok-123"

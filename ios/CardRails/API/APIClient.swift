@@ -31,7 +31,8 @@ final class APIClient {
         } else {
             let configuration = URLSessionConfiguration.default
             configuration.timeoutIntervalForRequest = 15
-            configuration.waitsForConnectivity = false
+            configuration.timeoutIntervalForResource = 60
+            configuration.waitsForConnectivity = true
             self.session = URLSession(configuration: configuration)
         }
         self.tokenStore = tokenStore
@@ -51,12 +52,14 @@ final class APIClient {
     // MARK: - Auth
 
     func signup(email: String, password: String) async throws -> AuthResponse {
-        try await send(
+        let response: AuthResponse = try await send(
             "POST",
             "v1/auth/signup",
             body: Credentials(email: email, password: password, client: "ios"),
             decode: AuthResponse.self
         )
+        tokenStore.save(response.token)
+        return response
     }
 
     func login(email: String, password: String) async throws -> AuthResponse {
@@ -76,7 +79,8 @@ final class APIClient {
     }
 
     func me() async throws -> Account {
-        try await send("GET", "v1/auth/me", decode: Account.self)
+        let response: MeResponse = try await send("GET", "v1/auth/me", decode: MeResponse.self)
+        return response.account
     }
 
     // MARK: - Inventory

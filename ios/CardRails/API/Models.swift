@@ -11,6 +11,11 @@ struct AuthResponse: Codable {
     let token: String
 }
 
+/// `GET /v1/auth/me` wraps the account: `{"account": {...}}`.
+struct MeResponse: Codable {
+    let account: Account
+}
+
 struct InventoryIdentity: Codable, Equatable {
     let game: String
     let name: String

@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreGraphics
 import Foundation
+import QuartzCore
 
 /// Owns the `AVCaptureSession`, runs Vision detection and recognition on a
 /// dedicated serial queue, and reports results back on the main queue.
@@ -20,6 +21,8 @@ final class CameraController: NSObject, ObservableObject {
     private var device: AVCaptureDevice?
     private var emptyFrameCount = 0
     private var identifiedThisPlacement = false
+    private var lastProcessedAt: CFTimeInterval = 0
+    private static let minFrameInterval: CFTimeInterval = 0.08
     /// Center of the card that was last identified; a big jump means a new card.
     private var identifiedCenter: CGPoint?
     private var configured = false
@@ -272,6 +275,10 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         didOutput sampleBuffer: CMSampleBuffer,
         from connection: AVCaptureConnection
     ) {
+        // ~12 fps is plenty for a card held still and keeps the phone cool.
+        let now = CACurrentMediaTime()
+        guard now - lastProcessedAt >= Self.minFrameInterval else { return }
+        lastProcessedAt = now
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         process(pixelBuffer)
     }
