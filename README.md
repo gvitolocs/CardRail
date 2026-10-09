@@ -1,11 +1,24 @@
-# CardRail
+# Card Rails
 
-One inventory. Every marketplace.
+Independent card inventory, scan photos and stock book. React/Vite SPA with first-party server APIs and private Vercel Blob persistence.
 
-CardRail is the inventory operating system for TCG sellers. Marketplaces connect through adapters. The core only stores a canonical card: identity, language, condition, printing, quantity, price, physical location, and external listings.
+- Full dark/red scan desk with visible QR/code pairing, sale/collection mode, batch defaults, flags, piles, duplicate merging and public catalog search.
+- Pokémon capture flow: capture → public recognition → saved scan rows → edit → add batch to inventory and allocate shelf positions.
+- First-party, one-use QR phone pairing into the same Card Rails inventory.
+- Verified CardTrader token connection, real listing mapping, fresh-read delta delivery and signed sale webhook.
+- eBay OAuth/token connection, actual business policy selection and publication from the saved scan bytes.
+- Atomic sales, deduplicated order lines, ordered outbox and visible delivery errors.
 
+Pokoin seller sync and Cardmarket linking still require an upstream Card Rails-scoped seller grant service. The app does not substitute Pokoin login/session tokens or private seller APIs. See [implementation](docs/implementation.md) for current behavior, configuration, tests and remaining prerequisites.
+
+```sh
+npm install
+npm run dev
+npm test
+npm run lint
+npm run build
 ```
-CardTrader ↔ Adapter ↔ CardRail Core ↔ Adapter ↔ Pokoin
-```
 
-This repository is the React demo: scan into a shelf position, reconcile a CardTrader order into one physical pick run, and show Pokoin as a connector rather than the product.
+Local handlers need `BLOB_READ_WRITE_TOKEN` and the stable `CARDRAILS_ENCRYPTION_KEY` in `.env.local`. Pull configured values with `vercel env pull .env.local`. Run Node on the Linux host when developing through the macOS SMB mount.
+
+Production: https://cardrails.vercel.app · existing Vercel project `prj_eofbIozZRQIgdkjROo3AqSZZSdEK` (confirm `.vercel/project.json` before deployment).

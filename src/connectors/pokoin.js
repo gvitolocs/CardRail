@@ -1,7 +1,23 @@
 /**
  * Pokoin adapter.
- * Pokoin stays a client of CardRail: this file is the whole plugin surface.
+ * Pokoin stays a client of Card Rails: this file is the whole plugin surface.
  */
+
+export function fromPokoinOrders(rawOrders) {
+  return rawOrders.map((raw, sequence) => ({
+    id: `pk-${raw.id}`,
+    ref: raw.code,
+    platform: 'pokoin',
+    buyer: raw.buyer,
+    placedAt: raw.placed_at,
+    sequence,
+    lines: raw.order_items.map((item) => ({
+      externalId: String(item.listing_id),
+      quantity: item.quantity,
+      label: item.name,
+    })),
+  }))
+}
 
 export function fromPokoinListing(raw) {
   return {

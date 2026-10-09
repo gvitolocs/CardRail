@@ -1,0 +1,196 @@
+Here is the implementation plan and UI/CSS direction for Card Rails, strictly adhering to the "Independent Inventory Service" model.
+
+### 1. Architecture & Data Model Shift
+
+**Core Principle:** Card Rails is the Source of Truth (SoT). Channels are downstream consumers.
+
+**Data Structure (`src/data/inventory.js` or DB schema):**
+```javascript
+{
+  id: "cr-uuid",
+  card: {
+    name: "Charizard",
+    set: "Base Set",
+    number: "4/102",
+    language: "English",
+    condition: "NM",
+    finish: "Holo"
+  },
+  location: "B05-R1-2100", // Shelf label
+  quantity: 5,
+  price: 150.00,
+  photoUrl: "/uploads/scan-uuid.jpg", // Local/Server stored scan
+  channels: {
+    pokoin: {
+      linked: true,
+      listingId: "pk-12345", // Public ID if available, or internal ref
+      status: "active"
+    },
+    cardtrader: {
+      linked: true,
+      productId: "ct-67890",
+      status: "active"
+    },
+    cardmarket: {
+      linked: false, // Only if Pokoin account is linked to CM
+      listingId: null
+    },
+    ebay: {
+      linked: false,
+      listingId: null
+    }
+  }
+}
+```
+
+**API Changes:**
+1.  **Remove:** `src/connectors/pokoinAccount.js` private calls.
+2.  **Add:** `src/api/v1/inventory.js`
+    *   `GET /inventory`: Returns Card Rails stock.
+    *   `POST /inventory`: Create new row (from Scan).
+    *   `PATCH /inventory/:id`: Update quantity/price.
+3.  **Add:** `src/api/v1/sync.js`
+    *   `POST /sync/pokoin/:id`: Pushes quantity delta to Pokoin (if public API allows, otherwise marks as "needs manual update" or uses public catalog lookup for price validation only). *Note: Since we cannot use private APIs, "Sync" to Pokoin might mean generating a CSV or using a public catalog match to verify price, or simply marking the row as "Listed on Pokoin" based on user input. If Pokoin has no public write API, the "Sync" is a status flag.*
+    *   `POST /sync/cardtrader/:id`: Uses `POST /products/:id/increment` with `delta_quantity`.
+    *   `POST /sync/ebay/:id`: Generates eBay payload.
+
+### 2. Scan & Photo Capture (Qwen Task)
+
+**UI Flow:**
+1.  **Scan Page:**
+    *   Camera view (native `getUserMedia`).
+    *   "Capture" button.
+    *   **Mandatory:** Photo must be saved to the row. No "skip photo" option.
+    *   **Identification:**
+        *   Option A: Manual entry (Name, Set, Number, Lang, Cond, Finish).
+        *   Option B: "Lookup" button that hits **Public Pokoin Catalog API** (e.g., `https://api.pokoin.com/catalog/search?q=...`) to pre-fill fields. *This is a read-only public endpoint.*
+2.  **Review Step:**
+    *   Show captured photo.
+    *   Show pre-filled card details.
+    *   User edits if needed.
+    *   "Save to Inventory" button.
+3.  **Save Action:**
+    *   Upload photo to `/uploads/`.
+    *   Create inventory row with `photoUrl`.
+    *   Set `channels` to `linked: false` initially.
+
+**eBay Payload Generation:**
+*   When user clicks "List on eBay" (if linked):
+    *   Take `photoUrl`.
+    *   Take `card.name`, `card.set`, `card.number`, `card.language`, `card.condition`, `card.finish`.
+    *   Construct exact title: `Charizard Base Set 4/102 English NM Holo`.
+    *   Generate JSON payload for eBay API (or download as CSV/JSON for manual upload if no direct API key is stored).
+    *   **Do not** invent a second photo. Use the scan.
+
+### 3. Sync Logic (DeepSeek Task)
+
+**Rules:**
+1.  **Sale on Card Rails:**
+    *   User marks card as sold in Card Rails UI.
+    *   `quantity` decreases by 1.
+    *   Trigger `syncToChannels(row)`.
+2.  **Sync to CardTrader:**
+    *   If `channels.cardtrader.linked` is true:
+        *   `POST https://api.cardtrader.com/products/:id/increment`
+        *   Body: `{ "delta_quantity": -1 }`
+3.  **Sync to Pokoin:**
+    *   If `channels.pokoin.linked` is true:
+        *   *Constraint:* No private API.
+        *   *Action:* Mark row as "Pokoin Update Pending" or generate a notification. If Pokoin has a public "update listing" endpoint (unlikely), use it. Otherwise, this is a manual step for the user, but Card Rails tracks the state.
+4.  **Sync to Cardmarket:**
+    *   Only if `channels.pokoin.linked` is true AND `channels.cardmarket.linked` is true.
+    *   *Action:* Same as Pokoin. Card Rails owns the sync logic, not Pokoin.
+5.  **Sale on CardTrader (Observed):**
+    *   If CardTrader webhook or manual entry indicates a sale:
+        *   Update Card Rails `quantity`.
+        *   **Do NOT** write back to CardTrader.
+        *   Sync to other channels (Pokoin, Cardmarket, eBay) if linked.
+
+### 4. UI/CSS Direction (Red/Satoshi/Barlow)
+
+**Design System:**
+*   **Primary Color:** `#ee1515` (Red)
+*   **Font:** `Satoshi` (Headings), `Barlow Condensed` (Body/Labels)
+*   **Style:** Clean, high-contrast, "Stock Book" aesthetic.
+
+**Key Components:**
+
+1.  **Inventory Table:**
+    *   Columns: Photo (thumbnail), Card Name, Set/Number, Location, Qty, Price, Channels (icons).
+    *   Channel Icons: Small flags/chips for Pokoin, CardTrader, Cardmarket, eBay.
+    *   Status: Green dot if synced, Yellow if pending, Red if error.
+2.  **Scan Modal:**
+    *   Full-screen camera view.
+    *   Bottom bar: "Capture" (Red button), "Cancel".
+    *   After capture: Overlay with photo preview and form fields.
+3.  **Channel Linking:**
+    *   "Platforms" page.
+    *   List of channels with "Link" button.
+    *   For Pokoin: "Link via Public Catalog" (User enters Seller ID or just marks as linked).
+    *   For CardTrader: "Enter Product ID".
+    *   For eBay: "Enter Listing ID" or "Generate Payload".
+
+**CSS Snippet:**
+```css
+:root {
+  --cr-red: #ee1515;
+  --cr-bg: #ffffff;
+  --cr-text: #1a1a1a;
+  --cr-font-heading: 'Satoshi', sans-serif;
+  --cr-font-body: 'Barlow Condensed', sans-serif;
+}
+
+body {
+  font-family: var(--cr-font-body);
+  color: var(--cr-text);
+  background-color: var(--cr-bg);
+}
+
+h1, h2, h3 {
+  font-family: var(--cr-font-heading);
+  font-weight: 700;
+}
+
+.btn-primary {
+  background-color: var(--cr-red);
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  font-family: var(--cr-font-heading);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-primary:hover {
+  background-color: #cc1111;
+}
+
+.channel-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.channel-pokoin { background-color: #f0f0f0; color: #333; }
+.channel-cardtrader { background-color: #e0f0ff; color: #0055aa; }
+.channel-cardmarket { background-color: #fff0e0; color: #aa5500; }
+.channel-ebay { background-color: #f0fff0; color: #00aa00; }
+```
+
+### 5. Implementation Steps
+
+1.  **Refactor `src/connectors/pokoinAccount.js`:**
+    *   Remove all private API calls.
+    *   Add `fetchPublicCatalog(query)` function.
+2.  **Update `src/api/v1/inventory.js`:**
+    *   Implement CRUD for Card Rails inventory.
+    *   Ensure photo upload is handled.
+3.  **Update `src/api/v1/sync.js`:**
+    *   Implement `syncToCardTrader(row, delta)`.
+    *   Implement `generateEbayPayload(row)`.
+    *   Implement `markAsSynced(row, channel)`.
+4.  **Update UI:**
+    *   **Scan Page:** Add camera capture and photo storage.

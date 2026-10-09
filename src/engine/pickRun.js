@@ -15,13 +15,13 @@ function lineFor(order, line, lineIndex, items) {
     platform: order.platform,
     quantity: line.quantity,
     item,
-    position: item.location.position,
+    position: item.location?.position ?? null,
     sequence: order.sequence,
     lineIndex,
   }
 }
 
-export function buildPickRun(orders, items, number = 184) {
+export function buildPickRun(orders, items, number) {
   const arrival = []
 
   for (const order of orders) {
@@ -31,7 +31,7 @@ export function buildPickRun(orders, items, number = 184) {
     })
   }
 
-  const lines = arrival.slice().sort((a, b) => a.position - b.position)
+  const lines = sortPickLines(arrival, 'location')
 
   return {
     number,
@@ -39,4 +39,31 @@ export function buildPickRun(orders, items, number = 184) {
     arrival,
     stops: lines.map((line) => line.position),
   }
+}
+
+/** PowerTools picking columns we can apply to a sold line. Location is the default. */
+export const PICK_SORTS = [
+  { id: 'location', label: 'Location' },
+  { id: 'name', label: 'English name' },
+  { id: 'expansion', label: 'Expansion' },
+  { id: 'condition', label: 'Condition' },
+  { id: 'price', label: 'Price' },
+]
+
+export function sortPickLines(lines, mode = 'location') {
+  const copy = lines.slice()
+  copy.sort((a, b) => comparePick(a, b, mode))
+  return copy
+}
+
+function comparePick(a, b, mode) {
+  if (mode === 'name') return a.item.identity.name.localeCompare(b.item.identity.name)
+  if (mode === 'expansion') return a.item.identity.setName.localeCompare(b.item.identity.setName)
+  if (mode === 'condition') return a.item.condition.localeCompare(b.item.condition)
+  if (mode === 'price') return b.item.price - a.item.price
+  const box = (a.item.location?.verified === false ? "" : a.item.location?.box || "").localeCompare(b.item.location?.verified === false ? "" : b.item.location?.box || "")
+  if (box) return box
+  const row = (a.item.location?.row || "").localeCompare(b.item.location?.row || "", undefined, { numeric: true })
+  if (row) return row
+  return a.position - b.position
 }

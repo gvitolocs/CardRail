@@ -1,0 +1,205 @@
+Here is the concrete UI/CSS proposal for the Card Rails improvements. This focuses on the visual flow, component structure, and styling to support the "Recognize -> Review -> Save" loop and the specific channel connections, maintaining the Red/Satoshi/Barlow aesthetic.
+
+### 1. Scan & Recognition Flow (The "Same Photo" Loop)
+
+The core UX change is that the photo taken *is* the asset. We do not fetch a separate catalog image for the primary view; we use the user's scan.
+
+**Component: `ScanCaptureModal`**
+*   **Layout:** Full-screen overlay. Dark background (`#111`) to make the card pop.
+*   **Camera View:**
+    *   Use `<video>` element with `getUserMedia`.
+    *   **CSS:** `object-fit: cover; width: 100%; height: 100%;`
+    *   **Overlay:** A subtle red crosshair or corner brackets (`border: 2px solid #ee1515`) to guide framing.
+    *   **Button:** Large circular button at the bottom. Red fill (`#ee1515`), white icon. On click, capture frame to `canvas`, convert to Blob, and store in local state `scanPhotoBlob`.
+*   **Recognition State:**
+    *   Once captured, the video freezes.
+    *   **Spinner:** A red ring spinner (Satoshi font "SCANNING...") centered over the frozen image.
+    *   **API Call:** `POST /api/scan/identify` with the Blob.
+    *   **Result:** The modal transitions to the "Review" state.
+
+**Component: `ReviewCard`**
+*   **Layout:** Split view (Mobile: Stacked, Desktop: Side-by-side).
+*   **Left: The Photo**
+    *   Displays the `scanPhotoBlob` (Object URL).
+    *   **CSS:** `border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);`
+    *   **Badge:** Top-left corner, small red tag: "SCAN".
+*   **Right: The Data (Canonical Fields)**
+    *   **Header:** Card Name (Barlow Condensed, 24px, Bold, White).
+    *   **Sub-header:** Set Name + Number (Satoshi, 14px, Gray).
+    *   **Grid of Inputs:**
+        *   **Language:** Select dropdown.
+        *   **Condition:** Segmented control (PSA 10, PSA 9, NM, etc.). Red active state.
+        *   **Printing:** Select (1st, 2nd, etc.).
+        *   **Quantity:** Number input with +/- buttons.
+        *   **Price:** Currency input.
+        *   **Location:** Text input with placeholder "B05-R1-2100".
+    *   **Confidence Indicator:** If the API returns low confidence, show a yellow warning icon next to the Name.
+    *   **Actions:**
+        *   "Save to Inventory" (Primary Red Button).
+        *   "Retake" (Ghost Button, Red Border).
+
+### 2. Inventory List & Detail
+
+**Component: `InventoryRow`**
+*   **Layout:** Flex row.
+*   **Thumbnail:** 40x56px image. Uses `scanPhoto` if available, falls back to catalog image.
+*   **Info:**
+    *   Name (Barlow Condensed, 16px).
+    *   Location Code (Satoshi, 12px, Monospace, Gray).
+    *   Quantity (Satoshi, 14px, White).
+*   **Status Chips:**
+    *   Small pills indicating linked channels: `POK` (Red), `CT` (Blue), `CM` (Green), `EB` (Yellow).
+    *   **CSS:** `background: rgba(255,255,255,0.1); border: 1px solid currentColor; font-family: 'Satoshi'; font-size: 10px; padding: 2px 6px; border-radius: 4px;`
+
+**Component: `InventoryDetailDrawer`**
+*   Slides in from the right.
+*   **Top:** Large `scanPhoto`.
+*   **Middle:** Editable canonical fields (same as ReviewCard).
+*   **Bottom:** "Sync Status" section.
+    *   Shows last sync time for each channel.
+    *   Button: "Push to Channels" (Red).
+
+### 3. Channel Connections (Platforms Page)
+
+**Component: `ChannelCard`**
+*   **Layout:** Card with dark background (`#1a1a1a`), red border on hover.
+*   **Header:** Channel Logo + Name (Barlow Condensed).
+*   **Status:**
+    *   **Connected:** Green dot + "Connected".
+    *   **Disconnected:** Gray dot + "Connect".
+*   **Connection Flow (Modal):**
+
+    **A. CardTrader (CT)**
+    *   **Input:** "API Token" (Password field).
+    *   **Button:** "Verify & Connect".
+    *   **Feedback:** On success, show "Token Valid". On fail, red error text.
+    *   **Note:** "Card Rails will send delta quantities to CT."
+
+    **B. eBay**
+    *   **Step 1: OAuth.**
+        *   Button: "Login with eBay" (eBay Blue button, but styled to fit theme).
+        *   Redirects to eBay OAuth.
+    *   **Step 2: Policies Preview.**
+        *   After OAuth, fetch user's shipping/payment policies.
+        *   **UI:** List of policies. User selects one for "Default Shipping" and one for "Default Payment".
+        *   **CSS:** Radio buttons with red accent.
+    *   **Step 3: Publish Test.**
+        *   Button: "Test Publish".
+        *   Creates a draft listing with a dummy card to verify permissions.
+        *   **Feedback:** "Draft Created: [Link]".
+
+    **C. Pokoin**
+    *   **Input:** "Pokoin Seller ID" (Public ID, not login).
+    *   **Button:** "Link Inventory".
+    *   **Note:** "Card Rails will read public catalog and push stock updates."
+
+### 4. CSS & Styling Details
+
+**Global Variables:**
+```css
+:root {
+  --cr-red: #ee1515;
+  --cr-red-dark: #b30f0f;
+  --cr-bg: #0d0d0d;
+  --cr-surface: #1a1a1a;
+  --cr-text: #ffffff;
+  --cr-text-muted: #a0a0a0;
+  --cr-border: #333333;
+  --font-display: 'Barlow Condensed', sans-serif;
+  --font-body: 'Satoshi', sans-serif;
+}
+```
+
+**Buttons:**
+```css
+.btn-primary {
+  background: var(--cr-red);
+  color: white;
+  font-family: var(--font-display);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 12px 24px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.btn-primary:hover {
+  background: var(--cr-red-dark);
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--cr-red);
+  border: 1px solid var(--cr-red);
+  font-family: var(--font-display);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 12px 24px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+```
+
+**Inputs:**
+```css
+.input-field {
+  background: var(--cr-surface);
+  border: 1px solid var(--cr-border);
+  color: var(--cr-text);
+  font-family: var(--font-body);
+  padding: 10px 12px;
+  border-radius: 4px;
+  width: 100%;
+}
+.input-field:focus {
+  outline: none;
+  border-color: var(--cr-red);
+}
+```
+
+**Scan Overlay:**
+```css
+.scan-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 80%;
+  height: 60%;
+  border: 2px solid var(--cr-red);
+  border-radius: 8px;
+  pointer-events: none;
+}
+.scan-overlay::before, .scan-overlay::after {
+  content: '';
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--cr-red);
+}
+/* Corner brackets */
+.scan-overlay::before {
+  top: -2px;
+  left: -2px;
+  border-right: none;
+  border-bottom: none;
+}
+.scan-overlay::after {
+  bottom: -2px;
+  right: -2px;
+  border-left: none;
+  border-top: none;
+}
+```
+
+### 5. Key UX Rules
+
+1.  **No Fake Connections:** If a channel is not connected, the "Sync" button is disabled and grayed out. Do not show "Connected" if the token is invalid.
+2.  **Photo is King:** The `scanPhoto` is the primary visual. Catalog images are only used as a fallback if the scan fails or is missing.
+3.  **Delta Awareness:** In the Inventory Detail, when a sale is recorded, show a toast: "Stock updated. Pushing delta to CardTrader...". Do not show "Setting stock to X".
+4.  **eBay Policies:** The eBay connection must explicitly show the selected shipping/payment policies before allowing "Publish". This prevents accidental misconfiguration.
+5.  **Public Pokoin:** The Pokoin connection form asks for a "Seller ID" (public), not a login. The UI should clarify: "Card Rails reads your public catalog and pushes stock updates."
+
+This proposal ensures the UI reflects the "Card Rails as the Stock Book" model, with a clean, red-accented, high-contrast interface that prioritizes the scan-to-list flow.

@@ -1,0 +1,42 @@
+[package]
+name = "cardrails-api"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "cardrails_api"
+path = "src/lib.rs"
+
+[[bin]]
+name = "cardrails-api"
+path = "src/main.rs"
+
+[dependencies]
+tikv-jemallocator = "0.6"
+axum = "0.8"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time", "signal"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "macros", "uuid", "chrono", "json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+tower-http = { version = "0.6", features = ["trace", "compression-gzip", "compression-br", "fs", "limit", "cors"] }
+argon2 = "0.5"
+rand = "0.8"
+sha2 = "0.10"
+hex = "0.4"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+axum-extra = { version = "0.10", features = ["cookie"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip"] }
+aes-gcm = "0.10"
+base64 = "0.22"
+regex = "1"
+unicode-normalization = "0.1"
+
+[dev-dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "cookies"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time", "signal"] }
+serde_json = "1"

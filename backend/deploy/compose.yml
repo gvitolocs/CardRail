@@ -1,0 +1,20 @@
+services:
+  cardrails-api:
+    image: cardrails-api:latest
+    container_name: cardrails-api
+    restart: unless-stopped
+    env_file: /home/nez/data/cardrails-api/api.env
+    environment:
+      CARDRAILS_CATALOG_DIR: /catalogs
+      CARDRAILS_ALLOWED_ORIGINS: https://cardrails.vercel.app,https://scan-cardrails.vercel.app
+    volumes:
+      - /home/nez/data/cardrails-catalogs/current:/catalogs:ro
+    ports:
+      - 127.0.0.1:18200:8080
+    networks:
+      - cardrails
+    mem_limit: 2g
+
+networks:
+  cardrails:
+    external: true
