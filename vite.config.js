@@ -1,9 +1,28 @@
 import react from '@vitejs/plugin-react'
+import { fileURLToPath } from 'node:url'
 import { defineConfig, loadEnv } from 'vite'
+
+// /about is a static landing page (about.html, no JavaScript); vercel.json rewrites it in production.
+const aboutRoute = (req, _res, next) => {
+  req.url = req.url.replace(/^\/about\/?(?=\?|$)/, '/about.html')
+  next()
+}
 
 // Run the same first-party handlers during local browser verification.
 export default defineConfig(({ mode }) => ({
+  build: {
+    rollupOptions: {
+      input: {
+        index: fileURLToPath(new URL('./index.html', import.meta.url)),
+        about: fileURLToPath(new URL('./about.html', import.meta.url)),
+      },
+    },
+  },
   plugins: [react(), {
+    name: 'cardrails-about-route',
+    configureServer(server) { server.middlewares.use(aboutRoute) },
+    configurePreviewServer(server) { server.middlewares.use(aboutRoute) },
+  }, {
     name: 'cardrails-local-api',
     configureServer(server) {
       Object.assign(process.env, loadEnv(mode, process.cwd(), ''))
